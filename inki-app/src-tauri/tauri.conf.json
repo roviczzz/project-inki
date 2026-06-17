@@ -32,9 +32,10 @@
       "icons/icon.ico"
     ],
     "windows": {
-        "certificateThumbprint": "F5D671AE0A10048A68EEB4F963EE3AA7A2227CFF",
-        "digestAlgorithm": "sha256RSA",
-        "timestampUrl": "http://timestamp.comodoca.com"
+        "certificateThumbprint": "CBF9CB8B7E49BC66924B45A8B7BD92E64B2D2706",
+        "digestAlgorithm": "sha256",
+        "timestampUrl": "http://timestamp.comodoca.com",
+        "tsp": false
     }
   }
 }
