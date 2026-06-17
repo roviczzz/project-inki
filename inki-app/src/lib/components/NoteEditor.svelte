@@ -77,7 +77,7 @@
           value={editingTitle}
           oninput={handleTitleInput}
           placeholder="Note title"
-          class="text-6xl font-bold border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent"
+          class="text-8xl font-bold border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent"
         />
       </div>
       <div class="flex items-center gap-2 pl-4">
