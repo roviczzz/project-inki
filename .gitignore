@@ -1,0 +1,7 @@
+inki-app/yarn.lock
+inki-app/src-tauri/tauri.conf.json
+inki-app/inki.key
+inki-app/inki.cer
+inki-app/certificate.pfx
+inki-app/base64cert.txt
+inki-app/src-tauri/tauri.conf.json
