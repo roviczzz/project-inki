@@ -10,6 +10,7 @@
 		orientation = "vertical",
 		scrollbarXClasses = "",
 		scrollbarYClasses = "",
+		forceMount = false,
 		children,
 		...restProps
 	}: WithoutChild<ScrollAreaPrimitive.RootProps> & {
@@ -17,6 +18,7 @@
 		scrollbarXClasses?: string | undefined;
 		scrollbarYClasses?: string | undefined;
 		viewportRef?: HTMLElement | null;
+		forceMount?: boolean | undefined;
 	} = $props();
 </script>
 
@@ -34,10 +36,10 @@
 		{@render children?.()}
 	</ScrollAreaPrimitive.Viewport>
 	{#if orientation === "vertical" || orientation === "both"}
-		<Scrollbar orientation="vertical" class={scrollbarYClasses} />
+		<Scrollbar orientation="vertical" class={scrollbarYClasses} {forceMount} />
 	{/if}
 	{#if orientation === "horizontal" || orientation === "both"}
-		<Scrollbar orientation="horizontal" class={scrollbarXClasses} />
+		<Scrollbar orientation="horizontal" class={scrollbarXClasses} {forceMount} />
 	{/if}
 	<ScrollAreaPrimitive.Corner />
 </ScrollAreaPrimitive.Root>

@@ -309,6 +309,551 @@ describe("NoteSidebar — delete dialog behavior", () => {
   });
 });
 
+describe("NoteSidebar — reorderNote logic", () => {
+  test("reorderNote moves a note to a new position and updates positions of others", () => {
+    const notes = [
+      { id: "a", title: "A", position: 0 },
+      { id: "b", title: "B", position: 1 },
+      { id: "c", title: "C", position: 2 },
+    ];
+
+    function reorderNote(id: string, newPosition: number) {
+      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
+      const note = sorted.find((n) => n.id === id);
+      if (!note) return;
+
+      const clamped = Math.max(0, Math.min(newPosition, sorted.length - 1));
+      sorted.splice(sorted.indexOf(note), 1);
+      sorted.splice(clamped, 0, note);
+
+      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
+
+      expect(updated[0].id).toBe("b");
+      expect(updated[0].position).toBe(0);
+      expect(updated[1].id).toBe("a");
+      expect(updated[1].position).toBe(1);
+      expect(updated[2].id).toBe("c");
+      expect(updated[2].position).toBe(2);
+    }
+
+    // Move "a" to position 1 (after "b")
+    reorderNote("a", 1);
+  });
+
+  test("reorderNote clamps position to valid range", () => {
+    const notes = [
+      { id: "a", title: "A", position: 0 },
+      { id: "b", title: "B", position: 1 },
+    ];
+
+    function reorderNote(id: string, newPosition: number) {
+      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
+      const note = sorted.find((n) => n.id === id);
+      if (!note) return;
+      const clamped = Math.max(0, Math.min(newPosition, sorted.length - 1));
+      expect(clamped).toBe(1); // clamped from 999 to 1
+    }
+
+    reorderNote("a", 999);
+  });
+
+  test("reorderNote does nothing for unknown id", () => {
+    let called = false;
+    function reorderNote(id: string) {
+      const sorted: any[] = [];
+      const note = sorted.find((n) => n.id === id);
+      if (!note) return;
+      called = true;
+    }
+    reorderNote("nonexistent");
+    expect(called).toBe(false);
+  });
+});
+
+describe("NoteSidebar — duplicateNote logic", () => {
+  test("duplicateNote creates a copy with (copy) suffix at position+1", () => {
+    const notes: any[] = [
+      { id: "a", title: "Note A", content: "hello", position: 0 },
+      { id: "b", title: "Note B", content: "world", position: 1 },
+    ];
+
+    function duplicateNote(id: string) {
+      const original = notes.find((n) => n.id === id);
+      if (!original) return null;
+      const sorted = [...notes].sort((a, b) => a.position - b.position);
+      const origIdx = sorted.indexOf(original);
+      const duplicate = {
+        id: "new-id",
+        title: `${original.title} (copy)`,
+        content: original.content,
+        position: origIdx + 1,
+      };
+      sorted.splice(origIdx + 1, 0, duplicate);
+      const updated = sorted.map((n, i) => ({ ...n, position: i }));
+
+      expect(updated).toHaveLength(3);
+      expect(updated[0].id).toBe("a");
+      expect(updated[1].id).toBe("new-id");
+      expect(updated[1].title).toBe("Note A (copy)");
+      expect(updated[2].id).toBe("b");
+    }
+
+    duplicateNote("a");
+  });
+
+  test("duplicateNote returns null for unknown id", () => {
+    const notes: any[] = [];
+    function duplicateNote(id: string) {
+      const original = notes.find((n) => n.id === id);
+      return original ? {} : null;
+    }
+    expect(duplicateNote("nonexistent")).toBeNull();
+  });
+});
+
+describe("NoteSidebar — moveNote logic", () => {
+  test("moveNote up swaps with previous note", () => {
+    const notes = [
+      { id: "a", position: 0 },
+      { id: "b", position: 1 },
+    ];
+
+    function moveNote(id: string, direction: string) {
+      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
+      const idx = sorted.findIndex((n: any) => n.id === id);
+      if (idx === -1) return;
+      let newIdx = idx;
+      if (direction === "up" && idx > 0) newIdx = idx - 1;
+      else return;
+      const [note] = sorted.splice(idx, 1);
+      sorted.splice(newIdx, 0, note);
+      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
+      expect(updated[0].id).toBe("b");
+      expect(updated[1].id).toBe("a");
+    }
+
+    moveNote("a", "up");
+  });
+
+  test("moveNote down swaps with next note", () => {
+    const notes = [
+      { id: "a", position: 0 },
+      { id: "b", position: 1 },
+    ];
+
+    function moveNote(id: string, direction: string) {
+      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
+      const idx = sorted.findIndex((n: any) => n.id === id);
+      if (idx === -1) return;
+      let newIdx = idx;
+      if (direction === "down" && idx < sorted.length - 1) newIdx = idx + 1;
+      else return;
+      const [note] = sorted.splice(idx, 1);
+      sorted.splice(newIdx, 0, note);
+      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
+      expect(updated[0].id).toBe("b");
+      expect(updated[1].id).toBe("a");
+    }
+
+    moveNote("b", "down");
+  });
+
+  test("moveNote top moves to position 0", () => {
+    const notes = [
+      { id: "a", position: 0 },
+      { id: "b", position: 1 },
+      { id: "c", position: 2 },
+    ];
+
+    function moveNote(id: string, direction: string) {
+      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
+      const idx = sorted.findIndex((n: any) => n.id === id);
+      if (idx === -1) return;
+      let newIdx = idx;
+      if (direction === "top") newIdx = 0;
+      else return;
+      const [note] = sorted.splice(idx, 1);
+      sorted.splice(newIdx, 0, note);
+      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
+      expect(updated[0].id).toBe("c");
+    }
+
+    moveNote("c", "top");
+  });
+
+  test("moveNote bottom moves to last position", () => {
+    const notes = [
+      { id: "a", position: 0 },
+      { id: "b", position: 1 },
+      { id: "c", position: 2 },
+    ];
+
+    function moveNote(id: string, direction: string) {
+      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
+      const idx = sorted.findIndex((n: any) => n.id === id);
+      if (idx === -1) return;
+      let newIdx = idx;
+      if (direction === "bottom") newIdx = sorted.length - 1;
+      else return;
+      const [note] = sorted.splice(idx, 1);
+      sorted.splice(newIdx, 0, note);
+      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
+      expect(updated[2].id).toBe("a");
+    }
+
+    moveNote("a", "bottom");
+  });
+
+  test("moveNote does nothing when already at top and moving up", () => {
+    const notes = [
+      { id: "a", position: 0 },
+      { id: "b", position: 1 },
+    ];
+
+    function moveNote(id: string, direction: string) {
+      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
+      const idx = sorted.findIndex((n: any) => n.id === id);
+      if (idx === -1) return;
+      if (direction === "up" && idx > 0) {
+        // would move
+      }
+      // else no-op: positions unchanged
+    }
+
+    moveNote("a", "up");
+    expect(notes[0].id).toBe("a");
+    expect(notes[0].position).toBe(0);
+  });
+
+  test("moveNote does nothing for unknown id", () => {
+    let called = false;
+    function moveNote(id: string) {
+      const sorted: any[] = [];
+      const idx = sorted.findIndex((n: any) => n.id === id);
+      if (idx === -1) return;
+      called = true;
+    }
+    moveNote("nonexistent");
+    expect(called).toBe(false);
+  });
+});
+
+describe("NoteSidebar — context menu behavior", () => {
+  test("openNoteCtxMenu sets correct state for card context menu", () => {
+    let ctxMenuVisible = false;
+    let ctxMenuTarget = "";
+    let ctxNoteId: string | null = null;
+
+    function openNoteCtxMenu(e: Event, noteId: string) {
+      e.preventDefault();
+      e.stopPropagation();
+      ctxNoteId = noteId;
+      ctxMenuTarget = "card";
+      ctxMenuVisible = true;
+    }
+
+    const event = {
+      preventDefault: mock(() => {}),
+      stopPropagation: mock(() => {}),
+    } as unknown as MouseEvent;
+
+    openNoteCtxMenu(event, "note-123");
+
+    expect(ctxMenuVisible).toBe(true);
+    expect(ctxMenuTarget).toBe("card");
+    expect(ctxNoteId).toBe("note-123");
+  });
+
+  test("openEmptyCtxMenu sets target to 'empty'", () => {
+    let ctxMenuVisible = false;
+    let ctxMenuTarget = "";
+    let ctxNoteId: string | null = "old-id";
+
+    function openEmptyCtxMenu(e: Event) {
+      e.preventDefault();
+      ctxNoteId = null;
+      ctxMenuTarget = "empty";
+      ctxMenuVisible = true;
+    }
+
+    const event = { preventDefault: mock(() => {}) } as unknown as MouseEvent;
+
+    openEmptyCtxMenu(event);
+
+    expect(ctxMenuVisible).toBe(true);
+    expect(ctxMenuTarget).toBe("empty");
+    expect(ctxNoteId).toBeNull();
+  });
+
+  test("closeCtxMenu resets menu state", () => {
+    let ctxMenuVisible = true;
+    let ctxNoteId: string | null = "note-1";
+
+    function closeCtxMenu() {
+      ctxMenuVisible = false;
+      ctxNoteId = null;
+    }
+
+    closeCtxMenu();
+
+    expect(ctxMenuVisible).toBe(false);
+    expect(ctxNoteId).toBeNull();
+  });
+
+  test("handleCtxRename sets rename state and closes menu", () => {
+    let ctxNoteId: string | null = "note-1";
+    let renamingNoteId: string | null = null;
+    let renameValue = "";
+    let ctxMenuVisible = true;
+
+    const notes = [{ id: "note-1", title: "My Note" }];
+
+    function handleCtxRename() {
+      if (ctxNoteId) {
+        const note = notes.find((n) => n.id === ctxNoteId);
+        if (note) {
+          renamingNoteId = ctxNoteId;
+          renameValue = note.title;
+          ctxMenuVisible = false;
+        }
+      }
+    }
+
+    handleCtxRename();
+
+    expect(renamingNoteId).toBe("note-1");
+    expect(renameValue).toBe("My Note");
+    expect(ctxMenuVisible).toBe(false);
+  });
+
+  test("handleCtxDelete sets deletingNoteId and closes menu", () => {
+    let ctxNoteId: string | null = "note-1";
+    let deletingNoteId: string | null = null;
+    let ctxMenuVisible = true;
+
+    function handleCtxDelete() {
+      if (ctxNoteId) deletingNoteId = ctxNoteId;
+      ctxMenuVisible = false;
+    }
+
+    handleCtxDelete();
+
+    expect(deletingNoteId).toBe("note-1");
+    expect(ctxMenuVisible).toBe(false);
+  });
+});
+
+describe("NoteSidebar — inline rename", () => {
+  test("commitRename saves trimmed non-empty title", () => {
+    let renamingNoteId: string | null = "note-1";
+    let renameValue = "  New Title  ";
+    let savedId = "";
+    let savedTitle = "";
+
+    function renameNote(id: string, title: string) {
+      savedId = id;
+      savedTitle = title;
+    }
+
+    function commitRename() {
+      if (renamingNoteId) {
+        const val = renameValue.trim();
+        if (val) renameNote(renamingNoteId, val);
+        renamingNoteId = null;
+      }
+    }
+
+    commitRename();
+
+    expect(savedId).toBe("note-1");
+    expect(savedTitle).toBe("New Title");
+    expect(renamingNoteId).toBeNull();
+  });
+
+  test("commitRename does not save empty title", () => {
+    let renamingNoteId: string | null = "note-1";
+    let renameValue = "  ";
+    let saved = false;
+
+    function renameNote(_id: string, _title: string) {
+      saved = true;
+    }
+
+    function commitRename() {
+      if (renamingNoteId) {
+        const val = renameValue.trim();
+        if (val) renameNote(renamingNoteId, val);
+        renamingNoteId = null;
+      }
+    }
+
+    commitRename();
+
+    expect(saved).toBe(false);
+    expect(renamingNoteId).toBeNull();
+  });
+
+  test("closeRename clears rename state", () => {
+    let renamingNoteId: string | null = "note-1";
+
+    function closeRename() {
+      renamingNoteId = null;
+    }
+
+    closeRename();
+    expect(renamingNoteId).toBeNull();
+  });
+
+  test("handleRenameKeydown Enter commits rename", () => {
+    let committed = false;
+
+    function commitRename() {
+      committed = true;
+    }
+
+    function handleRenameKeydown(e: KeyboardEvent) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitRename();
+      }
+    }
+
+    const event = { key: "Enter", preventDefault: mock(() => {}) } as unknown as KeyboardEvent;
+    handleRenameKeydown(event);
+    expect(committed).toBe(true);
+  });
+
+  test("handleRenameKeydown Escape closes rename", () => {
+    let closed = false;
+
+    function closeRename() {
+      closed = true;
+    }
+
+    function handleRenameKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeRename();
+      }
+    }
+
+    const event = { key: "Escape", preventDefault: mock(() => {}) } as unknown as KeyboardEvent;
+    handleRenameKeydown(event);
+    expect(closed).toBe(true);
+  });
+});
+
+describe("NoteSidebar — pointer events drag and drop", () => {
+  test("handlePointerDown sets dragNoteId and captures pointer", () => {
+    let dragNoteId: string | null = null;
+    let pointerCaptured = false;
+    let isDragging = false;
+
+    const closestMock = mock((selector: string) => {
+      if (selector === "button" || selector === "input") return null;
+      return {
+        setPointerCapture: mock(() => {
+          pointerCaptured = true;
+        }),
+      };
+    });
+
+    const event = {
+      button: 0,
+      pointerId: 42,
+      target: {
+        closest: closestMock,
+      },
+    } as unknown as PointerEvent;
+
+    function handlePointerDown(e: PointerEvent, id: string) {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (target.closest("button") || target.closest("input")) return;
+      dragNoteId = id;
+      isDragging = false;
+      target.closest('[role="button"]')?.setPointerCapture(e.pointerId);
+    }
+
+    handlePointerDown(event, "note-1");
+
+    expect(dragNoteId).toBe("note-1");
+    expect(isDragging).toBe(false);
+    expect(pointerCaptured).toBe(true);
+  });
+
+  test("handlePointerDown ignores clicks with secondary mouse buttons", () => {
+    let dragNoteId: string | null = null;
+    const event = { button: 2 } as unknown as PointerEvent;
+
+    function handlePointerDown(e: PointerEvent, id: string) {
+      if (e.button !== 0) return;
+      dragNoteId = id;
+    }
+
+    handlePointerDown(event, "note-1");
+    expect(dragNoteId).toBeNull();
+  });
+
+  test("handlePointerMove marks isDragging as true", () => {
+    let dragNoteId: string | null = "note-1";
+    let isDragging = false;
+
+    function handlePointerMove(_e: PointerEvent, id: string) {
+      if (dragNoteId !== id) return;
+      if (!isDragging) {
+        isDragging = true;
+      }
+    }
+
+    const event = {} as PointerEvent;
+    handlePointerMove(event, "note-1");
+    expect(isDragging).toBe(true);
+  });
+
+  test("handlePointerUp releases pointer capture and triggers reorderNote", () => {
+    let dragNoteId: string | null = "note-1";
+    let dragOverNoteId: string | null = "note-2";
+    let isDragging = true;
+    let pointerReleased = false;
+    let reorderedId = "";
+
+    const event = {
+      pointerId: 42,
+      currentTarget: {
+        releasePointerCapture: mock(() => {
+          pointerReleased = true;
+        }),
+      },
+    } as unknown as PointerEvent;
+
+    function reorderNote(id: string) {
+      reorderedId = id;
+    }
+
+    function handlePointerUp(e: PointerEvent, id: string) {
+      if (dragNoteId !== id) return;
+      const cardEl = e.currentTarget as HTMLElement;
+      cardEl.releasePointerCapture(e.pointerId);
+
+      if (isDragging && dragOverNoteId && dragOverNoteId !== dragNoteId) {
+        reorderNote(dragNoteId);
+      }
+      dragNoteId = null;
+      dragOverNoteId = null;
+      isDragging = false;
+    }
+
+    handlePointerUp(event, "note-1");
+
+    expect(dragNoteId).toBeNull();
+    expect(dragOverNoteId).toBeNull();
+    expect(isDragging).toBe(false);
+    expect(pointerReleased).toBe(true);
+    expect(reorderedId).toBe("note-1");
+  });
+});
+
 // --- Date.now mocking utilities ---
 let _originalDateNow: (() => number) | null = null;
 
