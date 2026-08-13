@@ -1,4 +1,4 @@
-# project-inki
+# Inki
 
 A lightweight, reactive notepad application built with Tauri + SvelteKit + shadcn-svelte.
 
