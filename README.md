@@ -19,6 +19,9 @@ Inki provides a clean two-panel interface for creating, editing, and managing te
 - **Dark mode** — Auto-detects and follows system color scheme preference
 - **Empty states** — Clear prompts when no notes exist or none are selected
 
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/39bd9a66-1fa7-494e-9e54-164170d689a5" />
+
+
 ## Tech Stack
 
 | Layer | Technology |
