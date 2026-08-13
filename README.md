@@ -4,6 +4,9 @@ A lightweight, reactive notepad application built with Tauri + SvelteKit + shadc
 
 Inki provides a clean two-panel interface for creating, editing, and managing text notes with real-time updates, keyboard shortcuts, and dark mode support.
 
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/effe69e7-fbd8-480c-9cd6-c24d23e98b9d" />
+
+
 ## Features
 
 - **Two-panel layout** — 280px sidebar with note list + flexible editor area, responsive overlay on mobile
