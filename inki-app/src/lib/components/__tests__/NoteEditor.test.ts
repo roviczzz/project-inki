@@ -99,11 +99,50 @@ function makeEditor(store: ReturnType<typeof makeStore>) {
     store.flushSave();
   }
 
+  let showMenu = false;
+  let showMoreMenu = false;
+  let menuX = 0;
+  let menuY = 0;
+
+  function closeAllMenus(): void {
+    showMenu = false;
+    showMoreMenu = false;
+  }
+
+  function handleContextMenu(clientX: number, clientY: number): void {
+    closeAllMenus();
+    const menuWidth = 180;
+    const menuHeight = 320;
+    const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const winHeight = typeof window !== 'undefined' ? window.innerHeight : 768;
+
+    let x = clientX;
+    let y = clientY;
+    if (x + menuWidth > winWidth) x = winWidth - menuWidth - 10;
+    if (y + menuHeight > winHeight) y = winHeight - menuHeight - 10;
+
+    menuX = x;
+    menuY = y;
+    showMenu = true;
+  }
+
+  function toggleMoreMenu(): void {
+    showMenu = false;
+    showMoreMenu = !showMoreMenu;
+  }
+
+  function applyFormat(formatType: string): void {
+    closeAllMenus();
+    store.flushSave();
+    // format applied...
+  }
+
   /**
    * Called when the reactive note selection changes.
    * Resets local editor state to the new note's content.
    */
   function onNoteChange(note: Note | null): void {
+    closeAllMenus();
     if (note) {
       if (note.id !== currentEditingId) {
         editingTitle = note.title;
@@ -132,12 +171,16 @@ function makeEditor(store: ReturnType<typeof makeStore>) {
   }
 
   return {
-    getState: () => ({ editingTitle, editingContent, currentEditingId }),
+    getState: () => ({ editingTitle, editingContent, currentEditingId, showMenu, showMoreMenu, menuX, menuY }),
     syncContent,
     handleBlur,
     onNoteChange,
     handleTitleInput,
     handleSave,
+    handleContextMenu,
+    closeAllMenus,
+    toggleMoreMenu,
+    applyFormat,
   };
 }
 
@@ -334,5 +377,83 @@ describe('NoteEditor — flushSave before export (T009)', () => {
     const stored = readStoragePayload();
     const storedNote = stored?.notes.find((n: any) => n.id === note.id) as any;
     expect(storedNote?.content).toBe('last minute edit');
+  });
+});
+
+describe('NoteEditor — menu cancellation & dismissal lifecycle (T021)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('handleContextMenu opens context menu with calculated coordinates', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.handleContextMenu(150, 250);
+
+    expect(editor.getState().showMenu).toBe(true);
+    expect(editor.getState().menuX).toBe(150);
+    expect(editor.getState().menuY).toBe(250);
+  });
+
+  it('closeAllMenus closes both context menu and more dropdown menu', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.handleContextMenu(100, 100);
+    expect(editor.getState().showMenu).toBe(true);
+
+    editor.closeAllMenus();
+    expect(editor.getState().showMenu).toBe(false);
+    expect(editor.getState().showMoreMenu).toBe(false);
+  });
+
+  it('toggleMoreMenu toggles the more formatting dropdown', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.toggleMoreMenu();
+    expect(editor.getState().showMoreMenu).toBe(true);
+
+    editor.toggleMoreMenu();
+    expect(editor.getState().showMoreMenu).toBe(false);
+  });
+
+  it('applying format closes open menus and flushes saves', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.handleContextMenu(100, 100);
+    expect(editor.getState().showMenu).toBe(true);
+
+    editor.applyFormat('bold');
+    expect(editor.getState().showMenu).toBe(false);
+    expect(editor.getState().showMoreMenu).toBe(false);
+  });
+
+  it('switching note selection closes open menus', () => {
+    const store = makeStore();
+    const noteA = store.addNote('A', '');
+    const noteB = store.addNote('B', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(noteA);
+
+    editor.toggleMoreMenu();
+    expect(editor.getState().showMoreMenu).toBe(true);
+
+    editor.onNoteChange(noteB);
+    expect(editor.getState().showMoreMenu).toBe(false);
   });
 });

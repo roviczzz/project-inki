@@ -72,6 +72,8 @@
 
   function handleSelectNote(id: string): void {
     if (isDragging) return;
+    closeCtxMenu();
+    closeRename();
     selectNote(id);
     onNoteSelect?.();
   }
@@ -120,6 +122,7 @@
     e.stopPropagation();
     closeCtxMenu();
     closeRename();
+    cancelDrag();
     ctxNoteId = noteId;
     ctxMenuTarget = 'card';
     positionMenu(e);
@@ -130,6 +133,7 @@
     e.preventDefault();
     closeCtxMenu();
     closeRename();
+    cancelDrag();
     ctxNoteId = null;
     ctxMenuTarget = 'empty';
     positionMenu(e);
@@ -188,11 +192,13 @@
       const val = renameValue.trim();
       if (val) renameNote(renamingNoteId, val);
       renamingNoteId = null;
+      renameValue = '';
     }
   }
 
   function closeRename(): void {
     renamingNoteId = null;
+    renameValue = '';
   }
 
   function handleRenameKeydown(e: KeyboardEvent): void {
@@ -202,6 +208,26 @@
 
   // --- Custom pointer events drag & drop reordering ---
 
+  function cancelDrag(targetEl?: HTMLElement | null, pointerId?: number): void {
+    if (targetEl && pointerId !== undefined) {
+      try {
+        targetEl.releasePointerCapture(pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    dragNoteId = null;
+    dragOverNoteId = null;
+    isDragging = false;
+    ghostX = 0;
+    ghostY = 0;
+  }
+
+  function handlePointerCancel(e: PointerEvent, id: string): void {
+    if (dragNoteId !== id) return;
+    cancelDrag(e.currentTarget as HTMLElement, e.pointerId);
+  }
+
   function handlePointerDown(e: PointerEvent, id: string): void {
     // Only drag with primary mouse button click or touch
     if (e.button !== 0) return;
@@ -210,6 +236,7 @@
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('input')) return;
 
+    closeCtxMenu();
     dragNoteId = id;
     isDragging = false;
     
@@ -269,6 +296,23 @@
       isDragging = false;
     }, 50);
   }
+
+  function handleWindowKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      if (ctxMenuVisible) closeCtxMenu();
+      if (renamingNoteId) closeRename();
+      if (dragNoteId || isDragging) cancelDrag();
+    }
+  }
+
+  function handleWindowClick(): void {
+    if (ctxMenuVisible) closeCtxMenu();
+  }
+
+  function handleWindowBlur(): void {
+    if (ctxMenuVisible) closeCtxMenu();
+    if (dragNoteId || isDragging) cancelDrag();
+  }
 </script>
 
 <div class="flex h-full w-full flex-col select-none" oncontextmenu={openEmptyCtxMenu} role="presentation">
@@ -302,6 +346,7 @@
             onpointerdown={(e) => handlePointerDown(e, note.id)}
             onpointermove={(e) => handlePointerMove(e, note.id)}
             onpointerup={(e) => handlePointerUp(e, note.id)}
+            onpointercancel={(e) => handlePointerCancel(e, note.id)}
             onclick={() => handleSelectNote(note.id)}
             oncontextmenu={(e) => openNoteCtxMenu(e, note.id)}
             role="button"
@@ -375,7 +420,7 @@
 </div>
 
 <!-- Context menu -->
-<svelte:window onclick={closeCtxMenu} onkeydown={(e) => e.key === 'Escape' && closeCtxMenu()} />
+<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} onblur={handleWindowBlur} />
 
 {#if ctxMenuVisible}
   <div

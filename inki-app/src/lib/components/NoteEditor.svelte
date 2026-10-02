@@ -44,6 +44,7 @@
 
   function handleContextMenu(e: MouseEvent) {
     e.preventDefault();
+    closeAllMenus();
     const menuWidth = 180;
     const menuHeight = 320;
     let x = e.clientX;
@@ -75,6 +76,7 @@
   }
 
   function applyFormat(formatType: string) {
+    closeAllMenus();
     if (!editorRef) return;
     // Flush pending save before format execution so state is consistent
     flushSave();
@@ -129,6 +131,7 @@
   }
 
   $effect(() => {
+    closeAllMenus();
     const note = getSelectedNote();
     if (note) {
       if (note.id !== currentEditingId) {
@@ -415,7 +418,7 @@ ${content}
   </div>
 {/if}
 
-<svelte:window onclick={closeAllMenus} onkeydown={(e) => e.key === 'Escape' && closeAllMenus()} />
+<svelte:window onclick={closeAllMenus} onkeydown={(e) => e.key === 'Escape' && closeAllMenus()} onblur={closeAllMenus} />
 
 {#if showMenu}
   <div

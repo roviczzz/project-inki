@@ -98,13 +98,13 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 ### Tests for User Story 3 ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T018 [P] [US3] Write sidebar interaction tests in `inki-app/src/lib/components/__tests__/NoteSidebar-interactions.test.ts` validating Escape key cancellation, outside click dismissal, inline rename trimming/restoration, and pointer cancel drag resets
+- [X] T018 [P] [US3] Write sidebar interaction tests in `inki-app/src/lib/components/__tests__/NoteSidebar-interactions.test.ts` validating Escape key cancellation, outside click dismissal, inline rename trimming/restoration, and pointer cancel drag resets
 
 ### Implementation for User Story 3
 
-- [ ] T019 [US3] Implement Escape key, window click, and selection change listeners in `inki-app/src/lib/components/NoteSidebar.svelte` to automatically close context menus and cancel/commit inline renames with whitespace trimming
-- [ ] T020 [US3] Implement pointer drag cancellation lifecycle in `inki-app/src/lib/components/NoteSidebar.svelte` with `pointercancel`, window `blur`, and Escape key listeners, immediately resetting `isDragging`, `dragNoteId`, `dragOverNoteId`, and ghost element positions
-- [ ] T021 [US3] Add Escape key and outside-click dismissal listeners for formatting and context menus in `inki-app/src/lib/components/NoteEditor.svelte`
+- [X] T019 [US3] Implement Escape key, window click, and selection change listeners in `inki-app/src/lib/components/NoteSidebar.svelte` to automatically close context menus and cancel/commit inline renames with whitespace trimming
+- [X] T020 [US3] Implement pointer drag cancellation lifecycle in `inki-app/src/lib/components/NoteSidebar.svelte` with `pointercancel`, window `blur`, and Escape key listeners, immediately resetting `isDragging`, `dragNoteId`, `dragOverNoteId`, and ghost element positions
+- [X] T021 [US3] Add Escape key and outside-click dismissal listeners for formatting and context menus in `inki-app/src/lib/components/NoteEditor.svelte`
 
 **Checkpoint**: User Stories 1, 2, and 3 operate seamlessly with complete cancellation lifecycle guarantees.
 
