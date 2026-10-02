@@ -12,6 +12,10 @@
       e.preventDefault();
       paletteOpen = !paletteOpen;
     }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      flushSave();
+    }
     if (e.ctrlKey || e.metaKey) {
       if (e.key === "=" || e.key === "+") {
         e.preventDefault();

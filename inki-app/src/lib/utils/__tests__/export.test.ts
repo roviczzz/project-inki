@@ -125,6 +125,63 @@ describe('formatMarkdownExport', () => {
 
 		expect(md).toContain('A & B < C > D "E" F G');
 	});
+
+	it('converts headings h1 through h6 to markdown headings', () => {
+		const note: Note = { ...mockNote, title: 'Heading Note' };
+		const content = '<h1>Heading 1</h1><h2>Heading 2</h2><h3>Heading 3</h3>';
+		const md = formatMarkdownExport(note, content);
+
+		expect(md).toContain('# Heading 1');
+		expect(md).toContain('## Heading 2');
+		expect(md).toContain('### Heading 3');
+	});
+
+	it('converts blockquotes to markdown quote syntax', () => {
+		const note: Note = { ...mockNote, title: 'Quote Note' };
+		const content = '<blockquote>This is a quoted line</blockquote>';
+		const md = formatMarkdownExport(note, content);
+
+		expect(md).toContain('> This is a quoted line');
+	});
+
+	it('converts unordered and ordered lists to markdown lists', () => {
+		const note: Note = { ...mockNote, title: 'List Note' };
+		const content = '<ul><li>Item A</li><li>Item B</li></ul><ol><li>First</li><li>Second</li></ol>';
+		const md = formatMarkdownExport(note, content);
+
+		expect(md).toContain('- Item A');
+		expect(md).toContain('- Item B');
+		expect(md).toContain('1. First');
+		expect(md).toContain('2. Second');
+	});
+
+	it('converts code blocks and inline code to markdown code', () => {
+		const note: Note = { ...mockNote, title: 'Code Note' };
+		const content = '<p>Use <code>const x = 1;</code> inline.</p><pre><code>function test() {\n  return true;\n}</code></pre>';
+		const md = formatMarkdownExport(note, content);
+
+		expect(md).toContain('`const x = 1;`');
+		expect(md).toContain('```\nfunction test() {\n  return true;\n}\n```');
+	});
+
+	it('converts strikethrough, bold tags (b, strong) and italic tags (i, em)', () => {
+		const note: Note = { ...mockNote, title: 'Style Note' };
+		const content = '<p><b>Bold</b> and <i>Italic</i> and <s>Strike</s> and <del>Del</del></p>';
+		const md = formatMarkdownExport(note, content);
+
+		expect(md).toContain('**Bold**');
+		expect(md).toContain('_Italic_');
+		expect(md).toContain('~~Strike~~');
+		expect(md).toContain('~~Del~~');
+	});
+
+	it('handles empty content without failing', () => {
+		const note: Note = { ...mockNote, title: 'Empty Note' };
+		const md = formatMarkdownExport(note, '');
+
+		expect(md).toContain('title: "Empty Note"');
+		expect(md.endsWith('---\n\n')).toBe(true);
+	});
 });
 
 describe('formatPlainTextExport', () => {

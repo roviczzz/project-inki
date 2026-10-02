@@ -176,7 +176,12 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && ['b', 'i', 'u', 's', 'z', 'y'].includes(e.key.toLowerCase())) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      handleSave();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && ['b', 'i', 'u', 'z', 'y'].includes(e.key.toLowerCase())) {
       setTimeout(syncContent, 0);
     }
   }
@@ -187,12 +192,27 @@
 
   /** Flush pending save on blur — ensures draft is persisted before focus leaves editor. */
   function handleEditorBlur(): void {
+    syncContent();
     flushSave();
   }
 
   function handleCreate(): void {
     const note = addNote();
     selectNote(note.id);
+  }
+
+  function downloadFile(filename: string, content: string, mime: string): void {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 100);
   }
 
   function getExportPayload(note: Note, content: string, ext: string): { data: string; mime: string } {
@@ -230,49 +250,49 @@
     }
   }
 
-  async function handleSave(): Promise<void> {
-    // Flush any pending draft before generating the export blob
+  async function handleSave(preferredExt: string = 'md'): Promise<void> {
+    syncContent();
     flushSave();
     const note = getSelectedNote();
     if (!note) return;
-    const content = editingContent || note.content;
-    const currentNote: Note = { ...note, content, title: editingTitle || note.title };
+    const content = editorRef ? editorRef.innerHTML : (editingContent || note.content || '');
+    const title = editingTitle || note.title || 'untitled';
+    const currentNote: Note = { ...note, content, title };
+
+    const extChoice = preferredExt.toLowerCase();
+    const { data: defaultData, mime: defaultMime } = getExportPayload(currentNote, content, extChoice);
+    const defaultFilename = `${title}.${extChoice === 'markdown' ? 'md' : extChoice}`;
 
     if ('showSaveFilePicker' in window) {
       try {
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: `${currentNote.title || 'untitled'}.html`,
+          suggestedName: defaultFilename,
           types: [
-            { description: 'HTML', accept: { 'text/html': ['.html'] } },
             { description: 'Markdown', accept: { 'text/markdown': ['.md'] } },
+            { description: 'HTML', accept: { 'text/html': ['.html'] } },
             { description: 'Plain Text', accept: { 'text/plain': ['.txt'] } },
             { description: 'JSON', accept: { 'application/json': ['.json'] } },
             { description: 'CSV', accept: { 'text/csv': ['.csv'] } },
           ],
         });
-        const name = handle.name || '';
-        const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() || 'html' : 'html';
-        const { data: fileContent } = getExportPayload(currentNote, content, ext);
-        const writable = await handle.createWritable();
-        await writable.write(fileContent);
-        await writable.close();
-      } catch {
-        // User cancelled
+        const name = handle.name || defaultFilename;
+        const chosenExt = name.includes('.') ? name.split('.').pop()?.toLowerCase() || extChoice : extChoice;
+        const targetPayload = getExportPayload(currentNote, content, chosenExt);
+        try {
+          const writable = await handle.createWritable();
+          await writable.write(targetPayload.data);
+          await writable.close();
+        } catch (writeErr) {
+          downloadFile(name, targetPayload.data, targetPayload.mime);
+        }
+      } catch (pickerErr: any) {
+        if (pickerErr?.name === 'AbortError') {
+          return;
+        }
+        downloadFile(defaultFilename, defaultData, defaultMime);
       }
     } else {
-      // Fallback: download as HTML
-      const { data: fileContent, mime } = getExportPayload(currentNote, content, 'html');
-      const blob = new Blob([fileContent], { type: mime });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${currentNote.title || 'untitled'}.html`;
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }, 100);
+      downloadFile(defaultFilename, defaultData, defaultMime);
     }
   }
 </script>
@@ -290,7 +310,7 @@
         />
       </div>
       <div class="flex items-center gap-2 pl-4">
-        <Button variant="outline" size="sm" onclick={handleSave} class="flex items-center gap-2">
+        <Button variant="outline" size="sm" onclick={() => handleSave()} class="flex items-center gap-2">
           <Save class="size-4" />
           Save
         </Button>

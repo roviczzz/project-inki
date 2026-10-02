@@ -49,8 +49,89 @@ export function formatHtmlExport(note: Note, content: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Converts rich HTML from the contenteditable editor into standard Markdown.
+ */
+export function htmlToMarkdown(html: string): string {
+	if (!html || !html.trim()) return '';
+
+	let md = html;
+
+	// Pre / Code blocks
+	md = md.replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, (_, code) => {
+		return `\n\`\`\`\n${code.replace(/<br\s*\/?>/gi, '\n')}\n\`\`\`\n`;
+	});
+	md = md.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (_, code) => {
+		return `\n\`\`\`\n${code.replace(/<br\s*\/?>/gi, '\n')}\n\`\`\`\n`;
+	});
+	md = md.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`');
+
+	// Blockquotes
+	md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, text) => {
+		const lines = text
+			.split(/<br\s*\/?>|\n|<\/?(?:p|div)[^>]*>/gi)
+			.map((l: string) => l.trim())
+			.filter(Boolean);
+		return lines.length > 0 ? `\n> ${lines.join('\n> ')}\n\n` : '';
+	});
+
+	// Headings
+	md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n# $1\n\n');
+	md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n## $1\n\n');
+	md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n### $1\n\n');
+	md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '\n#### $1\n\n');
+	md = md.replace(/<h5[^>]*>(.*?)<\/h5>/gi, '\n##### $1\n\n');
+	md = md.replace(/<h6[^>]*>(.*?)<\/h6>/gi, '\n###### $1\n\n');
+
+	// Unordered Lists
+	md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_, items) => {
+		const listItems = items.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
+		return `\n${listItems}\n`;
+	});
+
+	// Ordered Lists
+	md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_, items) => {
+		let index = 1;
+		const listItems = items.replace(/<li[^>]*>(.*?)<\/li>/gi, (_: string, item: string) => {
+			return `${index++}. ${item}\n`;
+		});
+		return `\n${listItems}\n`;
+	});
+
+	// Fallback for standalone <li>
+	md = md.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
+
+	// Text formatting: bold, italic, strikethrough
+	md = md.replace(/<(?:strong|b)[^>]*>(.*?)<\/(?:strong|b)>/gi, '**$1**');
+	md = md.replace(/<(?:em|i)[^>]*>(.*?)<\/(?:em|i)>/gi, '_$1_');
+	md = md.replace(/<(?:s|strike|del)[^>]*>(.*?)<\/(?:s|strike|del)>/gi, '~~$1~~');
+
+	// Line breaks and paragraph/div blocks
+	md = md.replace(/<br\s*\/?>/gi, '\n');
+	md = md.replace(/<\/?(?:p|div)[^>]*>/gi, '\n');
+
+	// Strip any remaining HTML tags
+	md = md.replace(/<[^>]+>/g, '');
+
+	// Decode standard HTML entities
+	md = md
+		.replace(/&nbsp;/g, ' ')
+		.replace(/&amp;/g, '&')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'");
+
+	// Normalize spacing
+	return md
+		.split('\n')
+		.map((line) => line.trimEnd())
+		.join('\n')
+		.replace(/\n{3,}/g, '\n\n')
+		.trim();
+}
+
+/**
  * Formats a note as a Markdown document with YAML frontmatter.
- * Content HTML is included as-is after the frontmatter (editors can post-process).
  */
 export function formatMarkdownExport(note: Note, content: string): string {
 	const frontmatter = `---
@@ -59,21 +140,8 @@ createdAt: ${note.createdAt}
 updatedAt: ${note.updatedAt}
 ---`;
 
-	// Basic HTML → Markdown: strip block tags and preserve text
-	const body = content
-		.replace(/<br\s*\/?>/gi, '\n')
-		.replace(/<\/?(p|div|h[1-6]|li|ul|ol)[^>]*>/gi, '\n')
-		.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
-		.replace(/<em[^>]*>(.*?)<\/em>/gi, '_$1_')
-		.replace(/<[^>]+>/g, '')
-		.replace(/&amp;/g, '&')
-		.replace(/&lt;/g, '<')
-		.replace(/&gt;/g, '>')
-		.replace(/&quot;/g, '"')
-		.replace(/&nbsp;/g, ' ')
-		.trim();
-
-	return `${frontmatter}\n\n${body}`;
+	const body = htmlToMarkdown(content);
+	return body ? `${frontmatter}\n\n${body}` : `${frontmatter}\n\n`;
 }
 
 // ---------------------------------------------------------------------------
