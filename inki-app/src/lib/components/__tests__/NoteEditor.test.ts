@@ -13,6 +13,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetLocalStorage, readStoragePayload } from '../../stores/__tests__/test-helpers.ts';
+import {
+  formatHtmlExport,
+  formatMarkdownExport,
+  formatPlainTextExport,
+  formatJsonExport,
+  formatCsvExport
+} from '../../utils/export.ts';
 
 // ---------------------------------------------------------------------------
 // Minimal store simulation (same interface as notes.svelte.ts)
@@ -170,6 +177,41 @@ function makeEditor(store: ReturnType<typeof makeStore>) {
     // … actual file-picker logic omitted
   }
 
+  function getExportPayload(note: Note, content: string, ext: string): { data: string; mime: string } {
+    const targetNote: Note = { ...note, content, title: editingTitle || note.title };
+    switch (ext) {
+      case 'md':
+      case 'markdown':
+        return {
+          data: formatMarkdownExport(targetNote, content),
+          mime: 'text/markdown;charset=utf-8'
+        };
+      case 'txt':
+      case 'text':
+        return {
+          data: formatPlainTextExport(targetNote, content),
+          mime: 'text/plain;charset=utf-8'
+        };
+      case 'json':
+        return {
+          data: formatJsonExport(targetNote),
+          mime: 'application/json;charset=utf-8'
+        };
+      case 'csv':
+        return {
+          data: formatCsvExport(targetNote),
+          mime: 'text/csv;charset=utf-8'
+        };
+      case 'html':
+      case 'htm':
+      default:
+        return {
+          data: formatHtmlExport(targetNote, content),
+          mime: 'text/html;charset=utf-8'
+        };
+    }
+  }
+
   return {
     getState: () => ({ editingTitle, editingContent, currentEditingId, showMenu, showMoreMenu, menuX, menuY }),
     syncContent,
@@ -177,6 +219,7 @@ function makeEditor(store: ReturnType<typeof makeStore>) {
     onNoteChange,
     handleTitleInput,
     handleSave,
+    getExportPayload,
     handleContextMenu,
     closeAllMenus,
     toggleMoreMenu,
@@ -455,5 +498,78 @@ describe('NoteEditor — menu cancellation & dismissal lifecycle (T021)', () => 
 
     editor.onNoteChange(noteB);
     expect(editor.getState().showMoreMenu).toBe(false);
+  });
+});
+
+describe('NoteEditor — multi-format export payload generation (T026)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('generates valid HTML export payload using formatHtmlExport', () => {
+    const store = makeStore();
+    const note = store.addNote('HTML Note', '<p>Hello <b>World</b></p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'html');
+    expect(mime).toBe('text/html;charset=utf-8');
+    expect(data).toContain('<!DOCTYPE html>');
+    expect(data).toContain('<title>HTML Note</title>');
+    expect(data).toContain('<p>Hello <b>World</b></p>');
+  });
+
+  it('generates valid Markdown export payload with YAML frontmatter', () => {
+    const store = makeStore();
+    const note = store.addNote('Markdown Note', '<p>Some <strong>bold</strong> text</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'md');
+    expect(mime).toBe('text/markdown;charset=utf-8');
+    expect(data).toContain('title: "Markdown Note"');
+    expect(data).toContain('**bold**');
+  });
+
+  it('generates valid Plain Text export payload without HTML tags', () => {
+    const store = makeStore();
+    const note = store.addNote('Plain Note', '<p>First line</p><p>Second &amp; third line</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'txt');
+    expect(mime).toBe('text/plain;charset=utf-8');
+    expect(data).toContain('Plain Note');
+    expect(data).toContain('Second & third line');
+    expect(data).not.toContain('<p>');
+  });
+
+  it('generates valid JSON export payload', () => {
+    const store = makeStore();
+    const note = store.addNote('JSON Note', '<p>Data</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'json');
+    expect(mime).toBe('application/json;charset=utf-8');
+    const parsed = JSON.parse(data);
+    expect(parsed.id).toBe(note.id);
+    expect(parsed.title).toBe('JSON Note');
+  });
+
+  it('generates RFC 4180 CSV export payload', () => {
+    const store = makeStore();
+    const note = store.addNote('CSV, Note "Quoted"', '<p>Data</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'csv');
+    expect(mime).toBe('text/csv;charset=utf-8');
+    expect(data).toContain('"id","title","content","createdAt","updatedAt","position"');
+    expect(data).toContain('"CSV, Note ""Quoted"""');
   });
 });

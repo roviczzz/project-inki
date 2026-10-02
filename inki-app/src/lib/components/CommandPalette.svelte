@@ -10,7 +10,14 @@
   import Moon from '@lucide/svelte/icons/moon';
   import Sun from '@lucide/svelte/icons/sun';
   import FileText from '@lucide/svelte/icons/file-text';
-  import { addNote, deleteNote, getNotes, selectNote, getSelectedNote } from '$lib/stores/notes.svelte.ts';
+  import { addNote, deleteNote, getNotes, selectNote, getSelectedNote, flushSave } from '$lib/stores/notes.svelte.ts';
+  import {
+    formatHtmlExport,
+    formatMarkdownExport,
+    formatPlainTextExport,
+    formatJsonExport,
+    formatCsvExport
+  } from '$lib/utils/export.ts';
   import { cn } from '$lib/utils.js';
 
   interface PaletteItem {
@@ -39,6 +46,20 @@
 
   let isDark = $state(document.documentElement.classList.contains('dark'));
 
+  function downloadFile(filename: string, content: string, mimeType: string): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      link.remove();
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+
   let allItems = $derived.by<PaletteItem[]>(() => {
     const cmds: PaletteItem[] = [
       {
@@ -55,38 +76,71 @@
       },
       {
         id: 'save-note',
-        label: 'Save Note',
+        label: 'Save Note (Markdown)',
         shortcut: 'Ctrl+S',
         keywords: ['save', 'download', 'export', 'md', 'markdown'],
         icon: Save,
         type: 'command',
         action: () => {
+          flushSave();
           const note = getSelectedNote();
           if (!note) return;
-          const blob = new Blob([note.content || ''], { type: 'text/markdown;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `${note.title || 'untitled'}.md`;
-          link.click();
-          setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 100);
+          const exported = formatMarkdownExport(note, note.content || '');
+          downloadFile(`${note.title || 'untitled'}.md`, exported, 'text/markdown;charset=utf-8');
+        }
+      },
+      {
+        id: 'export-html',
+        label: 'Export Note as HTML',
+        keywords: ['export', 'html', 'save', 'download', 'web'],
+        icon: FileText,
+        type: 'command',
+        action: () => {
+          flushSave();
+          const note = getSelectedNote();
+          if (!note) return;
+          const exported = formatHtmlExport(note, note.content || '');
+          downloadFile(`${note.title || 'untitled'}.html`, exported, 'text/html;charset=utf-8');
+        }
+      },
+      {
+        id: 'export-txt',
+        label: 'Export Note as Plain Text',
+        keywords: ['export', 'txt', 'text', 'plain', 'save', 'download'],
+        icon: FileText,
+        type: 'command',
+        action: () => {
+          flushSave();
+          const note = getSelectedNote();
+          if (!note) return;
+          const exported = formatPlainTextExport(note, note.content || '');
+          downloadFile(`${note.title || 'untitled'}.txt`, exported, 'text/plain;charset=utf-8');
         }
       },
       {
         id: 'export-all',
-        label: 'Export All Notes',
+        label: 'Export All Notes (JSON)',
         keywords: ['export', 'all', 'download', 'json', 'backup'],
         icon: Download,
         type: 'command',
         action: () => {
+          flushSave();
           const allNotes = getNotes();
-          const blob = new Blob([JSON.stringify(allNotes, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = 'inki-notes-export.json';
-          link.click();
-          setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 100);
+          const exported = formatJsonExport(allNotes);
+          downloadFile('inki-notes-export.json', exported, 'application/json;charset=utf-8');
+        }
+      },
+      {
+        id: 'export-csv',
+        label: 'Export All Notes as CSV',
+        keywords: ['export', 'all', 'csv', 'spreadsheet', 'download', 'table'],
+        icon: Download,
+        type: 'command',
+        action: () => {
+          flushSave();
+          const allNotes = getNotes();
+          const exported = formatCsvExport(allNotes);
+          downloadFile('inki-notes-export.csv', exported, 'text/csv;charset=utf-8');
         }
       },
       {

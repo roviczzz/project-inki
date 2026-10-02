@@ -19,6 +19,13 @@
   import { Separator } from '$lib/components/ui/separator/index.js';
   import { getSelectedNote, updateNote, addNote, selectNote, getNotes, flushSave, type Note } from '$lib/stores/notes.svelte.ts';
   import { getZoomLevel, zoomIn, zoomOut, resetZoom } from '$lib/stores/zoom.svelte.ts';
+  import {
+    formatHtmlExport,
+    formatMarkdownExport,
+    formatPlainTextExport,
+    formatJsonExport,
+    formatCsvExport
+  } from '$lib/utils/export.ts';
 
   let editingTitle = $state('');
   let editingContent = $state('');
@@ -188,36 +195,39 @@
     selectNote(note.id);
   }
 
-  function getSaveContent(content: string, note: Note, ext: string): string {
+  function getExportPayload(note: Note, content: string, ext: string): { data: string; mime: string } {
+    const targetNote: Note = { ...note, content, title: editingTitle || note.title };
     switch (ext) {
+      case 'md':
+      case 'markdown':
+        return {
+          data: formatMarkdownExport(targetNote, content),
+          mime: 'text/markdown;charset=utf-8'
+        };
+      case 'txt':
+      case 'text':
+        return {
+          data: formatPlainTextExport(targetNote, content),
+          mime: 'text/plain;charset=utf-8'
+        };
       case 'json':
-        return JSON.stringify(
-          { id: note.id, title: note.title, content, createdAt: note.createdAt, updatedAt: Date.now() },
-          null,
-          2
-        );
-      case 'html':
-        return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>${escHtml(note.title)}</title></head>
-<body>
-<h1>${escHtml(note.title)}</h1>
-${content}
-</body>
-</html>`;
+        return {
+          data: formatJsonExport(targetNote),
+          mime: 'application/json;charset=utf-8'
+        };
       case 'csv':
-        return `"title","content"\n"${escCsv(note.title)}","${escCsv(content)}"`;
+        return {
+          data: formatCsvExport(targetNote),
+          mime: 'text/csv;charset=utf-8'
+        };
+      case 'html':
+      case 'htm':
       default:
-        return content;
+        return {
+          data: formatHtmlExport(targetNote, content),
+          mime: 'text/html;charset=utf-8'
+        };
     }
-  }
-
-  function escHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function escCsv(s: string): string {
-    return s.replace(/"/g, '""');
   }
 
   async function handleSave(): Promise<void> {
@@ -226,11 +236,12 @@ ${content}
     const note = getSelectedNote();
     if (!note) return;
     const content = editingContent || note.content;
+    const currentNote: Note = { ...note, content, title: editingTitle || note.title };
 
     if ('showSaveFilePicker' in window) {
       try {
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: `${note.title || 'untitled'}.html`,
+          suggestedName: `${currentNote.title || 'untitled'}.html`,
           types: [
             { description: 'HTML', accept: { 'text/html': ['.html'] } },
             { description: 'Markdown', accept: { 'text/markdown': ['.md'] } },
@@ -241,7 +252,7 @@ ${content}
         });
         const name = handle.name || '';
         const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() || 'html' : 'html';
-        const fileContent = getSaveContent(content, note, ext);
+        const { data: fileContent } = getExportPayload(currentNote, content, ext);
         const writable = await handle.createWritable();
         await writable.write(fileContent);
         await writable.close();
@@ -250,11 +261,12 @@ ${content}
       }
     } else {
       // Fallback: download as HTML
-      const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
+      const { data: fileContent, mime } = getExportPayload(currentNote, content, 'html');
+      const blob = new Blob([fileContent], { type: mime });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${note.title || 'untitled'}.html`;
+      link.download = `${currentNote.title || 'untitled'}.html`;
       document.body.appendChild(link);
       link.click();
       setTimeout(() => {

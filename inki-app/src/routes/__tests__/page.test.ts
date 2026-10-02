@@ -1,194 +1,183 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-
 /**
- * Tests for +page.svelte — Responsive sidebar overlay + keyboard shortcut.
+ * T022 [US4] Page routing and UI integration tests (Vitest).
  *
- * Key behaviors:
- * 1. Ctrl+N / Cmd+N keyboard shortcut creates and selects a note
- * 2. The keyboard listener is cleaned up on destroy
- * 3. sidebarOpen state controls the mobile sidebar overlay
- * 4. Backdrop click closes the sidebar
- * 5. onNoteSelect prop closes the mobile sidebar
+ * Validates:
+ * - Ctrl+N / Cmd+N global keyboard shortcut creates and selects a new note
+ * - Shortcut prevents default browser action (new window)
+ * - Non-matching key events are ignored
+ * - Keydown event listener is cleanly removed on cleanup
+ * - Responsive mobile sidebar toggle state machine
+ * - Backdrop click closes the sidebar
+ * - onNoteSelect callback closes the mobile sidebar
  */
 
-// Set up DOM globals using happy-dom
-import { Window } from "happy-dom";
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-let window: Window;
-let document: Document;
+// ---------------------------------------------------------------------------
+// Mock Store & Keyboard Setup
+// ---------------------------------------------------------------------------
 
-// Mock store functions
 const mockStore = {
-  addNoteCalls: 0,
-  selectNoteCalls: [] as Array<string | null>,
-  lastNoteId: "test-note-id-1",
+	addNoteCalls: 0,
+	selectNoteCalls: [] as Array<string | null>,
+	lastNoteId: 'test-note-id-1',
 
-  addNote: mock(() => {
-    mockStore.addNoteCalls++;
-    return {
-      id: mockStore.lastNoteId,
-      title: "Test Note",
-      content: "",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-  }),
+	addNote: vi.fn(() => {
+		mockStore.addNoteCalls++;
+		return {
+			id: mockStore.lastNoteId,
+			title: 'Test Note',
+			content: '',
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			position: 0
+		};
+	}),
 
-  selectNote: mock((id: string | null) => {
-    mockStore.selectNoteCalls.push(id);
-  }),
+	selectNote: vi.fn((id: string | null) => {
+		mockStore.selectNoteCalls.push(id);
+	}),
 
-  reset() {
-    this.addNoteCalls = 0;
-    this.selectNoteCalls = [];
-    this.lastNoteId = "test-note-id-1";
-    this.addNote.mockClear();
-    this.selectNote.mockClear();
-  },
+	reset() {
+		this.addNoteCalls = 0;
+		this.selectNoteCalls = [];
+		this.lastNoteId = 'test-note-id-1';
+		this.addNote.mockClear();
+		this.selectNote.mockClear();
+	}
 };
 
 /**
- * Keyboard handler logic from +page.svelte's $effect.
- * We pass the store functions as parameters to make this testable.
+ * Keyboard handler logic extracted from +page.svelte's $effect.
  */
 function setupKeyboardShortcut(win: Window) {
-  function handler(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "n") {
-      e.preventDefault();
-      const note = mockStore.addNote();
-      mockStore.selectNote(note.id);
-    }
-  }
-  win.addEventListener("keydown", handler);
-  return () => win.removeEventListener("keydown", handler);
+	function handler(e: KeyboardEvent) {
+		if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+			e.preventDefault();
+			const note = mockStore.addNote();
+			mockStore.selectNote(note.id);
+		}
+	}
+	win.addEventListener('keydown', handler);
+	return () => win.removeEventListener('keydown', handler);
 }
 
-describe("Page — keyboard shortcut Ctrl+N / Cmd+N", () => {
-  let cleanup: () => void;
+describe('Page — Keyboard Shortcut Ctrl+N / Cmd+N', () => {
+	let cleanup: (() => void) | null = null;
 
-  beforeEach(() => {
-    window = new Window();
-    document = window.document;
-    mockStore.reset();
-  });
+	beforeEach(() => {
+		mockStore.reset();
+	});
 
-  afterEach(() => {
-    if (cleanup) cleanup();
-  });
+	afterEach(() => {
+		if (cleanup) {
+			cleanup();
+			cleanup = null;
+		}
+	});
 
-  test("Ctrl+N calls addNote and selectNote", () => {
-    cleanup = setupKeyboardShortcut(window);
+	function createKeyEvent(key: string, modifiers: { ctrl?: boolean; meta?: boolean } = {}) {
+		const event = new KeyboardEvent('keydown', {
+			key,
+			ctrlKey: modifiers.ctrl ?? false,
+			metaKey: modifiers.meta ?? false,
+			bubbles: true,
+			cancelable: true
+		});
+		vi.spyOn(event, 'preventDefault');
+		return event;
+	}
 
-    const event = new (window as any).KeyboardEvent("keydown", {
-      key: "n",
-      ctrlKey: true,
-    });
-    const preventDefaultSpy = mock(() => {});
-    event.preventDefault = preventDefaultSpy;
+	it('Ctrl+N creates a new note, selects it, and calls preventDefault', () => {
+		cleanup = setupKeyboardShortcut(window);
 
-    window.dispatchEvent(event);
+		const event = createKeyEvent('n', { ctrl: true });
+		window.dispatchEvent(event);
 
-    expect(mockStore.addNote).toHaveBeenCalled();
-    expect(mockStore.selectNote).toHaveBeenCalledWith("test-note-id-1");
-    expect(preventDefaultSpy).toHaveBeenCalled();
-  });
+		expect(mockStore.addNote).toHaveBeenCalledTimes(1);
+		expect(mockStore.selectNote).toHaveBeenCalledWith('test-note-id-1');
+		expect(event.preventDefault).toHaveBeenCalled();
+	});
 
-  test("Cmd+N on macOS also creates a note (metaKey)", () => {
-    cleanup = setupKeyboardShortcut(window);
+	it('Cmd+N on macOS creates a new note, selects it, and calls preventDefault', () => {
+		cleanup = setupKeyboardShortcut(window);
 
-    const event = new (window as any).KeyboardEvent("keydown", {
-      key: "n",
-      metaKey: true,
-    });
-    const preventDefaultSpy = mock(() => {});
-    event.preventDefault = preventDefaultSpy;
+		const event = createKeyEvent('n', { meta: true });
+		window.dispatchEvent(event);
 
-    window.dispatchEvent(event);
+		expect(mockStore.addNote).toHaveBeenCalledTimes(1);
+		expect(mockStore.selectNote).toHaveBeenCalledWith('test-note-id-1');
+		expect(event.preventDefault).toHaveBeenCalled();
+	});
 
-    expect(mockStore.addNote).toHaveBeenCalled();
-    expect(mockStore.selectNote).toHaveBeenCalledWith("test-note-id-1");
-    expect(preventDefaultSpy).toHaveBeenCalled();
-  });
+	it('regular "n" key without Ctrl/Cmd does nothing', () => {
+		cleanup = setupKeyboardShortcut(window);
 
-  test("regular 'n' key without modifier does nothing", () => {
-    cleanup = setupKeyboardShortcut(window);
+		const event = createKeyEvent('n');
+		window.dispatchEvent(event);
 
-    const event = new (window as any).KeyboardEvent("keydown", {
-      key: "n",
-    });
+		expect(mockStore.addNote).not.toHaveBeenCalled();
+		expect(mockStore.selectNote).not.toHaveBeenCalled();
+		expect(event.preventDefault).not.toHaveBeenCalled();
+	});
 
-    window.dispatchEvent(event);
+	it('other keys with Ctrl modifier do nothing', () => {
+		cleanup = setupKeyboardShortcut(window);
 
-    expect(mockStore.addNote).not.toHaveBeenCalled();
-    expect(mockStore.selectNote).not.toHaveBeenCalled();
-  });
+		const event = createKeyEvent('s', { ctrl: true });
+		window.dispatchEvent(event);
 
-  test("other keys with Ctrl modifier do nothing", () => {
-    cleanup = setupKeyboardShortcut(window);
+		expect(mockStore.addNote).not.toHaveBeenCalled();
+		expect(mockStore.selectNote).not.toHaveBeenCalled();
+		expect(event.preventDefault).not.toHaveBeenCalled();
+	});
 
-    const event = new (window as any).KeyboardEvent("keydown", {
-      key: "s",
-      ctrlKey: true,
-    });
+	it('cleanup removes the keydown listener', () => {
+		cleanup = setupKeyboardShortcut(window);
 
-    window.dispatchEvent(event);
+		// Execute cleanup
+		cleanup();
+		cleanup = null;
 
-    expect(mockStore.addNote).not.toHaveBeenCalled();
-    expect(mockStore.selectNote).not.toHaveBeenCalled();
-  });
+		const event = createKeyEvent('n', { ctrl: true });
+		window.dispatchEvent(event);
 
-  test("cleanup removes the keydown listener", () => {
-    const handlerMock = mock(() => {});
-    window.addEventListener("keydown", handlerMock);
-
-    expect(typeof handlerMock).toBe("function");
-
-    // Simulate cleanup
-    window.removeEventListener("keydown", handlerMock);
-
-    // Create and dispatch event - handler should not fire
-    const event = new (window as any).KeyboardEvent("keydown", {
-      key: "n",
-      ctrlKey: true,
-    });
-    window.dispatchEvent(event);
-
-    // The handler was removed so it should not have been called
-    expect(handlerMock).not.toHaveBeenCalled();
-  });
+		expect(mockStore.addNote).not.toHaveBeenCalled();
+		expect(mockStore.selectNote).not.toHaveBeenCalled();
+	});
 });
 
-describe("Page — responsive sidebar overlay behavior", () => {
-  test("sidebar state toggles correctly", () => {
-    let sidebarOpen = false;
+describe('Page — Responsive Sidebar Overlay State Machine', () => {
+	it('toggles sidebarOpen state between true and false', () => {
+		let sidebarOpen = false;
 
-    // Click menu button — toggles open
-    sidebarOpen = !sidebarOpen;
-    expect(sidebarOpen).toBe(true);
+		// Mobile menu button click
+		sidebarOpen = !sidebarOpen;
+		expect(sidebarOpen).toBe(true);
 
-    // Click menu button again — toggles closed
-    sidebarOpen = !sidebarOpen;
-    expect(sidebarOpen).toBe(false);
-  });
+		// Mobile menu button click again
+		sidebarOpen = !sidebarOpen;
+		expect(sidebarOpen).toBe(false);
+	});
 
-  test("backdrop click sets sidebarOpen to false", () => {
-    let sidebarOpen = true;
+	it('backdrop click sets sidebarOpen to false', () => {
+		let sidebarOpen = true;
 
-    // The backdrop has: onclick={() => (sidebarOpen = false)}
-    sidebarOpen = false;
-    expect(sidebarOpen).toBe(false);
-  });
+		// Backdrop onclick={() => (sidebarOpen = false)}
+		sidebarOpen = false;
+		expect(sidebarOpen).toBe(false);
+	});
 
-  test("onNoteSelect callback closes the mobile sidebar", () => {
-    let sidebarOpen = true;
+	it('onNoteSelect callback closes the mobile sidebar', () => {
+		let sidebarOpen = true;
 
-    // This is the inline callback from +page.svelte:
-    // <NoteSidebar onNoteSelect={() => (sidebarOpen = false)} />
-    const onNoteSelect = () => {
-      sidebarOpen = false;
-    };
+		// onNoteSelect={() => (sidebarOpen = false)}
+		const onNoteSelect = () => {
+			sidebarOpen = false;
+		};
 
-    onNoteSelect();
-    expect(sidebarOpen).toBe(false);
-  });
+		onNoteSelect();
+		expect(sidebarOpen).toBe(false);
+	});
 });
+

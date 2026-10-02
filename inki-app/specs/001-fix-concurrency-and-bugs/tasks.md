@@ -119,13 +119,13 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 ### Tests for User Story 4 ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T022 [P] [US4] Write layout and page routing integration tests in `inki-app/src/routes/__tests__/layout.test.ts` and `inki-app/src/routes/__tests__/page.test.ts` validating dark mode detection, responsive sidebar toggling, and global keyboard shortcut handlers using Vitest
-- [ ] T023 [P] [US4] Write export formatting unit tests in `inki-app/src/lib/utils/__tests__/export.test.ts` validating HTML escaping, RFC 4180 CSV quoting, Markdown YAML frontmatter, JSON serialization, and Plain Text tag conversion
+- [X] T022 [P] [US4] Write layout and page routing integration tests in `inki-app/src/routes/__tests__/layout.test.ts` and `inki-app/src/routes/__tests__/page.test.ts` validating dark mode detection, responsive sidebar toggling, and global keyboard shortcut handlers using Vitest
+- [X] T023 [P] [US4] Write export formatting unit tests in `inki-app/src/lib/utils/__tests__/export.test.ts` validating HTML escaping, RFC 4180 CSV quoting, Markdown YAML frontmatter, JSON serialization, and Plain Text tag conversion
 
 ### Implementation for User Story 4
 
-- [ ] T024 [US4] Refactor all existing test suites in `inki-app/src/lib/components/__tests__/*.test.ts` and `inki-app/src/routes/__tests__/*.test.ts` from `"bun:test"` to `'vitest'`, resolving Happy-DOM vs DOM type conflicts and mock definitions
-- [ ] T025 [US4] Fix TypeScript type declarations, remove stale `@ts-expect-error` directives in `inki-app/vite.config.js`, and adjust `inki-app/tsconfig.json` so that `npm run check` passes with 0 errors and 0 warnings
+- [X] T024 [US4] Refactor all existing test suites in `inki-app/src/lib/components/__tests__/*.test.ts` and `inki-app/src/routes/__tests__/*.test.ts` from `"bun:test"` to `'vitest'`, resolving Happy-DOM vs DOM type conflicts and mock definitions
+- [X] T025 [US4] Fix TypeScript type declarations, remove stale `@ts-expect-error` directives in `inki-app/vite.config.js`, and adjust `inki-app/tsconfig.json` so that `npm run check` passes with 0 errors and 0 warnings
 
 **Checkpoint**: All user stories and full quality gates pass cleanly (`npm run check` and `npm test`).
 
@@ -135,9 +135,9 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 
 **Purpose**: Wire multi-format export utilities into UI components, validate developer quickstart workflows, and verify complete system stability.
 
-- [ ] T026 [P] Wire `formatHtmlExport`, `formatMarkdownExport`, `formatPlainTextExport`, `formatJsonExport`, and `formatCsvExport` from `inki-app/src/lib/utils/export.ts` into `NoteEditor.svelte` and `CommandPalette.svelte` in `inki-app/src/lib/components/` ensuring `flushSave()` is called prior to file downloads
-- [ ] T027 Execute developer quickstart scenarios from `inki-app/specs/001-fix-concurrency-and-bugs/quickstart.md` validating rapid typing, deletion transitions, drag resets, and multi-format exports
-- [ ] T028 [P] Run full quality gate verification (`npm run check`, `npm test`, and `npm run build` in `inki-app/`) ensuring zero errors, clean builds, and regression-free operation
+- [X] T026 [P] Wire `formatHtmlExport`, `formatMarkdownExport`, `formatPlainTextExport`, `formatJsonExport`, and `formatCsvExport` from `inki-app/src/lib/utils/export.ts` into `NoteEditor.svelte` and `CommandPalette.svelte` in `inki-app/src/lib/components/` ensuring `flushSave()` is called prior to file downloads
+- [X] T027 Execute developer quickstart scenarios from `inki-app/specs/001-fix-concurrency-and-bugs/quickstart.md` validating rapid typing, deletion transitions, drag resets, and multi-format exports
+- [X] T028 [P] Run full quality gate verification (`npm run check`, `npm test`, and `npm run build` in `inki-app/`) ensuring zero errors, clean builds, and regression-free operation
 
 ---
 
