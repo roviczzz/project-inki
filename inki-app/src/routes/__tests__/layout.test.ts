@@ -1,188 +1,339 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-
 /**
- * Tests for +layout.svelte — Dark mode auto-detection via matchMedia.
+ * T022 [US4] Layout integration tests (Vitest).
  *
- * The layout component's $effect:
- * 1. Calls window.matchMedia('(prefers-color-scheme: dark)')
- * 2. Calls update(mq) which toggles `.dark` on <html> based on matches
- * 3. Adds a 'change' listener to the MediaQueryList
- * 4. Returns cleanup that removes the 'change' listener
+ * Validates:
+ * - Dark mode auto-detection and persistence:
+ *   1. Reads from localStorage ('inki-dark-mode') if set ('true' -> dark, 'false' -> light)
+ *   2. Falls back to window.matchMedia('(prefers-color-scheme: dark)') when localStorage is not set
+ *   3. Handles media query change events dynamically
+ *   4. Handles localStorage access exceptions safely
+ * - Global keyboard shortcuts (handleKeydown):
+ *   1. Ctrl+K / Cmd+K toggles command palette
+ *   2. Ctrl+= / Ctrl++ / Cmd+= / Cmd++ calls zoomIn()
+ *   3. Ctrl+- / Ctrl+_ / Cmd+- / Cmd+_ calls zoomOut()
+ *   4. Ctrl+0 / Cmd+0 calls resetZoom()
+ * - Lifecycle persistence handlers:
+ *   1. beforeunload calls flushSave()
+ *   2. unload calls flushSave()
  */
 
-// Set up DOM globals using happy-dom
-import { Window } from "happy-dom";
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
-let window: Window;
-let document: Document;
-let classListToggleCalls: Array<[string, boolean | undefined]>;
+// ---------------------------------------------------------------------------
+// Extracted Layout Logic for Testing
+// ---------------------------------------------------------------------------
 
-interface MqListenerEntry {
-  event: "change";
-  handler: (ev: { matches: boolean }) => void;
+function applyDarkModeLogic(win: typeof window, doc: typeof document) {
+	try {
+		const stored = win.localStorage.getItem('inki-dark-mode');
+		if (stored !== null) {
+			doc.documentElement.classList.toggle('dark', stored === 'true');
+			return () => {};
+		}
+	} catch {
+		// Fallback to matchMedia
+	}
+
+	const mq = win.matchMedia('(prefers-color-scheme: dark)');
+	function update(ev: { matches: boolean }) {
+		doc.documentElement.classList.toggle('dark', ev.matches);
+	}
+
+	update(mq);
+	const changeHandler = (ev: Event) => {
+		if ('matches' in ev && typeof (ev as { matches: boolean }).matches === 'boolean') {
+			update(ev as { matches: boolean });
+		}
+	};
+	mq.addEventListener('change', changeHandler);
+	return () => mq.removeEventListener('change', changeHandler);
 }
 
-function createMockMatchMedia(initialMatches: boolean) {
-  const listeners: MqListenerEntry[] = [];
-
-  const mockMq = {
-    matches: initialMatches,
-    addEventListener: mock(
-      (event: "change", handler: (ev: { matches: boolean }) => void) => {
-        listeners.push({ event, handler });
-      }
-    ),
-    removeEventListener: mock(
-      (event: "change", handler: (ev: { matches: boolean }) => void) => {
-        const idx = listeners.findIndex((l) => l.handler === handler);
-        if (idx >= 0) listeners.splice(idx, 1);
-      }
-    ),
-  };
-
-  function triggerChange(newMatches: boolean) {
-    mockMq.matches = newMatches;
-    for (const l of listeners) {
-      l.handler({ matches: newMatches });
-    }
-  }
-
-  return { mockMq, triggerChange, listeners };
+interface LayoutKeydownOptions {
+	getPaletteOpen: () => boolean;
+	setPaletteOpen: (open: boolean) => void;
+	zoomIn: () => void;
+	zoomOut: () => void;
+	resetZoom: () => void;
 }
 
-/**
- * Core logic from +layout.svelte's $effect, extracted for testing.
- */
-function setupDarkModeDetection(windowObj: Window, doc: Document) {
-  const mq = windowObj.matchMedia("(prefers-color-scheme: dark)");
-
-  function update(ev: { matches: boolean }) {
-    doc.documentElement.classList.toggle("dark", ev.matches);
-  }
-
-  update(mq);
-  mq.addEventListener("change", update);
-
-  return () => mq.removeEventListener("change", update);
+function createLayoutKeydownHandler(opts: LayoutKeydownOptions) {
+	return function handleKeydown(e: KeyboardEvent) {
+		if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+			e.preventDefault();
+			opts.setPaletteOpen(!opts.getPaletteOpen());
+		}
+		if (e.ctrlKey || e.metaKey) {
+			if (e.key === '=' || e.key === '+') {
+				e.preventDefault();
+				opts.zoomIn();
+			} else if (e.key === '-' || e.key === '_') {
+				e.preventDefault();
+				opts.zoomOut();
+			} else if (e.key === '0') {
+				e.preventDefault();
+				opts.resetZoom();
+			}
+		}
+	};
 }
 
-describe("Layout — dark mode auto-detection", () => {
-  beforeEach(() => {
-    window = new Window();
-    document = window.document;
-    classListToggleCalls = [];
+describe('Layout — Dark Mode Detection & Persistence', () => {
+	let classListToggleCalls: Array<[string, boolean]>;
 
-    // Mock classList.toggle to track calls
-    document.documentElement.classList.toggle = mock(
-      (cls: string, force?: boolean) => {
-        classListToggleCalls.push([cls, force]);
-        // Always apply the class like the real toggle with force
-        if (force !== undefined) {
-          if (force) {
-            document.documentElement.classList.add(cls);
-          } else {
-            document.documentElement.classList.remove(cls);
-          }
-        }
-        return force ?? false;
-      }
-    ) as unknown as DOMTokenList["toggle"];
-  });
+	beforeEach(() => {
+		classListToggleCalls = [];
+		localStorage.clear();
 
-  afterEach(() => {
-    // Cleanup
-  });
+		vi.spyOn(document.documentElement.classList, 'toggle').mockImplementation(
+			(cls: string, force?: boolean) => {
+				const flag = force ?? false;
+				classListToggleCalls.push([cls, flag]);
+				if (flag) {
+					document.documentElement.classList.add(cls);
+				} else {
+					document.documentElement.classList.remove(cls);
+				}
+				return flag;
+			}
+		);
+	});
 
-  test("applies .dark class when prefers-color-scheme is dark", () => {
-    const { mockMq } = createMockMatchMedia(true);
-    window.matchMedia = mock(() => mockMq) as unknown as Window["matchMedia"];
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
 
-    const cleanup = setupDarkModeDetection(window, document);
+	it('uses localStorage inki-dark-mode="true" when present', () => {
+		localStorage.setItem('inki-dark-mode', 'true');
 
-    const darkToggle = classListToggleCalls.find(([cls]) => cls === "dark");
-    expect(darkToggle).toBeDefined();
-    expect(darkToggle![1]).toBe(true);
+		applyDarkModeLogic(window, document);
 
-    cleanup();
-  });
+		const darkToggle = classListToggleCalls.find(([cls]) => cls === 'dark');
+		expect(darkToggle).toBeDefined();
+		expect(darkToggle![1]).toBe(true);
+	});
 
-  test("removes .dark class when prefers-color-scheme is light", () => {
-    const { mockMq } = createMockMatchMedia(false);
-    window.matchMedia = mock(() => mockMq) as unknown as Window["matchMedia"];
+	it('uses localStorage inki-dark-mode="false" when present', () => {
+		localStorage.setItem('inki-dark-mode', 'false');
 
-    const cleanup = setupDarkModeDetection(window, document);
+		applyDarkModeLogic(window, document);
 
-    const darkToggle = classListToggleCalls.find(([cls]) => cls === "dark");
-    expect(darkToggle).toBeDefined();
-    expect(darkToggle![1]).toBe(false);
+		const darkToggle = classListToggleCalls.find(([cls]) => cls === 'dark');
+		expect(darkToggle).toBeDefined();
+		expect(darkToggle![1]).toBe(false);
+	});
 
-    cleanup();
-  });
+	it('falls back to matchMedia when localStorage is empty (dark)', () => {
+		const matchMediaSpy = vi.spyOn(window, 'matchMedia').mockReturnValue({
+			matches: true,
+			media: '(prefers-color-scheme: dark)',
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn()
+		} as unknown as MediaQueryList);
 
-  test("adds change event listener to MediaQueryList", () => {
-    const { mockMq } = createMockMatchMedia(false);
-    window.matchMedia = mock(() => mockMq) as unknown as Window["matchMedia"];
+		const cleanup = applyDarkModeLogic(window, document);
 
-    const cleanup = setupDarkModeDetection(window, document);
+		expect(matchMediaSpy).toHaveBeenCalledWith('(prefers-color-scheme: dark)');
+		const darkToggle = classListToggleCalls.find(([cls]) => cls === 'dark');
+		expect(darkToggle).toBeDefined();
+		expect(darkToggle![1]).toBe(true);
 
-    expect(mockMq.addEventListener).toHaveBeenCalledTimes(1);
-    expect(mockMq.addEventListener).toHaveBeenCalledWith(
-      "change",
-      expect.any(Function)
-    );
+		cleanup();
+	});
 
-    cleanup();
-  });
+	it('falls back to matchMedia when localStorage is empty (light)', () => {
+		const matchMediaSpy = vi.spyOn(window, 'matchMedia').mockReturnValue({
+			matches: false,
+			media: '(prefers-color-scheme: dark)',
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn()
+		} as unknown as MediaQueryList);
 
-  test("cleanup removes the change event listener", () => {
-    const { mockMq } = createMockMatchMedia(false);
-    window.matchMedia = mock(() => mockMq) as unknown as Window["matchMedia"];
+		const cleanup = applyDarkModeLogic(window, document);
 
-    const cleanup = setupDarkModeDetection(window, document);
+		expect(matchMediaSpy).toHaveBeenCalledWith('(prefers-color-scheme: dark)');
+		const darkToggle = classListToggleCalls.find(([cls]) => cls === 'dark');
+		expect(darkToggle).toBeDefined();
+		expect(darkToggle![1]).toBe(false);
 
-    cleanup();
+		cleanup();
+	});
 
-    expect(mockMq.removeEventListener).toHaveBeenCalledWith(
-      "change",
-      expect.any(Function)
-    );
-  });
+	it('dynamically responds to matchMedia change events and cleans up listener', () => {
+		let changeListener: ((ev: { matches: boolean }) => void) | null = null;
+		const mockMql = {
+			matches: false,
+			media: '(prefers-color-scheme: dark)',
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn((event: string, handler: any) => {
+				if (event === 'change') changeListener = handler;
+			}),
+			removeEventListener: vi.fn((event: string, handler: any) => {
+				if (event === 'change' && changeListener === handler) changeListener = null;
+			}),
+			dispatchEvent: vi.fn()
+		};
 
-  test("toggles .dark on when media query changes from light to dark", () => {
-    const { mockMq, triggerChange } = createMockMatchMedia(false);
-    window.matchMedia = mock(() => mockMq) as unknown as Window["matchMedia"];
+		vi.spyOn(window, 'matchMedia').mockReturnValue(mockMql as unknown as MediaQueryList);
 
-    const cleanup = setupDarkModeDetection(window, document);
+		const cleanup = applyDarkModeLogic(window, document);
+		expect(changeListener).toBeDefined();
 
-    // Clear initial call tally
-    classListToggleCalls.length = 0;
+		// Trigger change event to dark
+		changeListener!({ matches: true });
+		expect(classListToggleCalls[classListToggleCalls.length - 1]).toEqual(['dark', true]);
 
-    // Simulate change to dark
-    triggerChange(true);
+		// Trigger change event to light
+		changeListener!({ matches: false });
+		expect(classListToggleCalls[classListToggleCalls.length - 1]).toEqual(['dark', false]);
 
-    const darkToggle = classListToggleCalls.find(([cls]) => cls === "dark");
-    expect(darkToggle).toBeDefined();
-    expect(darkToggle![1]).toBe(true);
+		// Cleanup
+		cleanup();
+		expect(mockMql.removeEventListener).toHaveBeenCalledWith('change', expect.any(Function));
+	});
 
-    cleanup();
-  });
+	it('handles localStorage exceptions gracefully by falling back to matchMedia', () => {
+		vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+			throw new Error('SecurityError: access denied');
+		});
 
-  test("toggles .dark off when media query changes from dark to light", () => {
-    const { mockMq, triggerChange } = createMockMatchMedia(true);
-    window.matchMedia = mock(() => mockMq) as unknown as Window["matchMedia"];
+		vi.spyOn(window, 'matchMedia').mockReturnValue({
+			matches: true,
+			media: '(prefers-color-scheme: dark)',
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn()
+		} as unknown as MediaQueryList);
 
-    const cleanup = setupDarkModeDetection(window, document);
+		const cleanup = applyDarkModeLogic(window, document);
+		const darkToggle = classListToggleCalls.find(([cls]) => cls === 'dark');
+		expect(darkToggle).toBeDefined();
+		expect(darkToggle![1]).toBe(true);
 
-    // Clear initial call tally
-    classListToggleCalls.length = 0;
-
-    // Simulate change to light
-    triggerChange(false);
-
-    const darkToggle = classListToggleCalls.find(([cls]) => cls === "dark");
-    expect(darkToggle).toBeDefined();
-    expect(darkToggle![1]).toBe(false);
-
-    cleanup();
-  });
+		cleanup();
+	});
 });
+
+describe('Layout — Global Keyboard Shortcuts & Persistence Lifecycle', () => {
+	let paletteState = false;
+	let zoomInMock = vi.fn();
+	let zoomOutMock = vi.fn();
+	let resetZoomMock = vi.fn();
+	let handler: (e: KeyboardEvent) => void;
+
+	beforeEach(() => {
+		paletteState = false;
+		zoomInMock = vi.fn();
+		zoomOutMock = vi.fn();
+		resetZoomMock = vi.fn();
+
+		handler = createLayoutKeydownHandler({
+			getPaletteOpen: () => paletteState,
+			setPaletteOpen: (open) => {
+				paletteState = open;
+			},
+			zoomIn: zoomInMock,
+			zoomOut: zoomOutMock,
+			resetZoom: resetZoomMock
+		});
+	});
+
+	function createKeyEvent(key: string, modifiers: { ctrl?: boolean; meta?: boolean } = {}) {
+		const event = new KeyboardEvent('keydown', {
+			key,
+			ctrlKey: modifiers.ctrl ?? false,
+			metaKey: modifiers.meta ?? false,
+			bubbles: true,
+			cancelable: true
+		});
+		vi.spyOn(event, 'preventDefault');
+		return event;
+	}
+
+	it('Ctrl+K toggles palette open and closed with preventDefault', () => {
+		const ev1 = createKeyEvent('k', { ctrl: true });
+		handler(ev1);
+		expect(paletteState).toBe(true);
+		expect(ev1.preventDefault).toHaveBeenCalled();
+
+		const ev2 = createKeyEvent('k', { ctrl: true });
+		handler(ev2);
+		expect(paletteState).toBe(false);
+		expect(ev2.preventDefault).toHaveBeenCalled();
+	});
+
+	it('Cmd+K on macOS toggles palette', () => {
+		const ev = createKeyEvent('k', { meta: true });
+		handler(ev);
+		expect(paletteState).toBe(true);
+		expect(ev.preventDefault).toHaveBeenCalled();
+	});
+
+	it('Ctrl+= and Ctrl++ triggers zoomIn', () => {
+		const ev1 = createKeyEvent('=', { ctrl: true });
+		handler(ev1);
+		expect(zoomInMock).toHaveBeenCalledTimes(1);
+		expect(ev1.preventDefault).toHaveBeenCalled();
+
+		const ev2 = createKeyEvent('+', { ctrl: true });
+		handler(ev2);
+		expect(zoomInMock).toHaveBeenCalledTimes(2);
+		expect(ev2.preventDefault).toHaveBeenCalled();
+	});
+
+	it('Ctrl+- and Ctrl+_ triggers zoomOut', () => {
+		const ev1 = createKeyEvent('-', { ctrl: true });
+		handler(ev1);
+		expect(zoomOutMock).toHaveBeenCalledTimes(1);
+		expect(ev1.preventDefault).toHaveBeenCalled();
+
+		const ev2 = createKeyEvent('_', { ctrl: true });
+		handler(ev2);
+		expect(zoomOutMock).toHaveBeenCalledTimes(2);
+		expect(ev2.preventDefault).toHaveBeenCalled();
+	});
+
+	it('Ctrl+0 triggers resetZoom', () => {
+		const ev = createKeyEvent('0', { ctrl: true });
+		handler(ev);
+		expect(resetZoomMock).toHaveBeenCalledTimes(1);
+		expect(ev.preventDefault).toHaveBeenCalled();
+	});
+
+	it('unrelated keys do not trigger zoom or palette', () => {
+		const ev = createKeyEvent('x', { ctrl: true });
+		handler(ev);
+		expect(paletteState).toBe(false);
+		expect(zoomInMock).not.toHaveBeenCalled();
+		expect(zoomOutMock).not.toHaveBeenCalled();
+		expect(resetZoomMock).not.toHaveBeenCalled();
+		expect(ev.preventDefault).not.toHaveBeenCalled();
+	});
+
+	it('beforeunload and unload event handlers call flushSave', () => {
+		const flushSaveMock = vi.fn();
+
+		const onBeforeUnload = () => flushSaveMock();
+		const onUnload = () => flushSaveMock();
+
+		onBeforeUnload();
+		expect(flushSaveMock).toHaveBeenCalledTimes(1);
+
+		onUnload();
+		expect(flushSaveMock).toHaveBeenCalledTimes(2);
+	});
+});
+

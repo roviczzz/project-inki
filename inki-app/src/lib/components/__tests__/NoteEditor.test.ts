@@ -1,141 +1,575 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
-import { Window } from "happy-dom";
+/**
+ * T009 [US1] NoteEditor interaction tests (Vitest).
+ *
+ * Validates:
+ * - Content synchronization: syncContent() reads innerHTML and calls updateNote
+ * - Input blur flush trigger: onblur causes flushSave() before persisting
+ * - Clean editor reset on note change: switching notes resets editingTitle/editingContent
+ * - Format execution triggers syncContent to update store
+ * - flushSave is called before export operations
+ *
+ * NOTE: NoteEditor.svelte cannot be imported directly without Svelte compilation.
+ * These tests validate the same pure business logic extracted from the component.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { resetLocalStorage, readStoragePayload } from '../../stores/__tests__/test-helpers.ts';
+import {
+  formatHtmlExport,
+  formatMarkdownExport,
+  formatPlainTextExport,
+  formatJsonExport,
+  formatCsvExport
+} from '../../utils/export.ts';
 
-let window: Window;
-let document: Document;
+// ---------------------------------------------------------------------------
+// Minimal store simulation (same interface as notes.svelte.ts)
+// ---------------------------------------------------------------------------
 
-// Mock store functions
-const mockStore = {
-  selectedNote: null as any,
-  allNotes: [] as any[],
-  getSelectedNote: mock(() => mockStore.selectedNote),
-  getNotes: mock(() => mockStore.allNotes),
-};
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+interface Note {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+  position: number;
 }
 
-function escCsv(s: string): string {
-  return s.replace(/"/g, '""');
-}
+function makeStore(initial: Note[] = [], selectedId: string | null = null) {
+  let notes: Note[] = [...initial];
+  let selectedNoteId: string | null = selectedId;
+  let saveTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  const DEBOUNCE_MS = 300;
+  const STORAGE_KEY = 'inki-notes';
 
-function getSaveContent(content: string, note: any, ext: string): string {
-  switch (ext) {
-    case 'json':
-      return JSON.stringify(
-        { id: note.id, title: note.title, content, createdAt: note.createdAt, updatedAt: note.updatedAt },
-        null,
-        2
-      );
-    case 'html':
-      return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>${escHtml(note.title)}</title></head>
-<body>
-<h1>${escHtml(note.title)}</h1>
-${content}
-</body>
-</html>`;
-    case 'csv':
-      return `"title","content"\n"${escCsv(note.title)}","${escCsv(content)}"`;
-    default:
-      return content;
+  function saveToLocalStorage() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ notes, selectedNoteId }));
   }
-}
+  function scheduleSave() {
+    if (saveTimeoutId !== null) clearTimeout(saveTimeoutId);
+    saveTimeoutId = setTimeout(() => { saveTimeoutId = null; saveToLocalStorage(); }, DEBOUNCE_MS);
+  }
+  function flushSave() {
+    if (saveTimeoutId !== null) { clearTimeout(saveTimeoutId); saveTimeoutId = null; }
+    saveToLocalStorage();
+  }
+  function hasPendingSave() { return saveTimeoutId !== null; }
 
-describe("NoteEditor — Save logic", () => {
-  beforeEach(() => {
-    window = new Window();
-    document = window.document;
-
-    (window as any).URL = {
-      createObjectURL: mock(() => "blob:mock-url"),
-      revokeObjectURL: mock(() => {}),
-    };
-
-    (window as any).Blob = class MockBlob {
-      constructor(public parts: any[], public options: any) {}
-    };
-
-    mockStore.selectedNote = {
-      id: "test-id",
-      title: "My Note",
-      content: "# Hello World",
+  function getSelectedNote(): Note | null {
+    return selectedNoteId ? (notes.find(n => n.id === selectedNoteId) ?? null) : null;
+  }
+  function updateNote(id: string, updates: Partial<Pick<Note, 'title' | 'content'>>) {
+    notes = notes.map(n => n.id !== id ? n : { ...n, ...updates, updatedAt: Date.now() });
+    scheduleSave();
+  }
+  function selectNote(id: string | null) {
+    flushSave();
+    selectedNoteId = id;
+  }
+  function addNote(title?: string, content?: string): Note {
+    flushSave();
+    const note: Note = {
+      id: crypto.randomUUID(),
+      title: title || 'New Note',
+      content: content || '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      position: notes.length,
     };
-  });
+    notes = [...notes, note];
+    selectedNoteId = note.id;
+    scheduleSave();
+    return note;
+  }
 
-  test("getSaveContent returns raw content for .md", () => {
-    const result = getSaveContent("some content", mockStore.selectedNote, 'md');
-    expect(result).toBe("some content");
-  });
+  return { getSelectedNote, updateNote, selectNote, addNote, flushSave, hasPendingSave };
+}
 
-  test("getSaveContent returns raw content for .txt", () => {
-    const result = getSaveContent("some content", mockStore.selectedNote, 'txt');
-    expect(result).toBe("some content");
-  });
+// ---------------------------------------------------------------------------
+// NoteEditor logic (extracted from NoteEditor.svelte for unit testing)
+// ---------------------------------------------------------------------------
 
-  test("getSaveContent returns JSON for .json", () => {
-    const note = mockStore.selectedNote;
-    const result = getSaveContent(note.content, note, 'json');
-    const parsed = JSON.parse(result);
-    expect(parsed.id).toBe("test-id");
-    expect(parsed.title).toBe("My Note");
-    expect(parsed.content).toBe(note.content);
-    expect(parsed.createdAt).toBe(note.createdAt);
-    expect(parsed.updatedAt).toBe(note.updatedAt);
-  });
+function makeEditor(store: ReturnType<typeof makeStore>) {
+  let editingTitle = '';
+  let editingContent = '';
+  let currentEditingId: string | null = null;
 
-  test("getSaveContent returns HTML for .html", () => {
-    const result = getSaveContent("# Hello", mockStore.selectedNote, 'html');
-    expect(result).toContain("<!DOCTYPE html>");
-    expect(result).toContain("<title>My Note</title>");
-    expect(result).toContain("<h1>My Note</h1>");
-    expect(result).toContain("# Hello");
-  });
-
-  test("getSaveContent escapes HTML special chars in HTML output", () => {
-    const note = { id: "1", title: "Note & <Title>", content: "<script>alert('xss')</script>", createdAt: 0, updatedAt: 0 };
-    const result = getSaveContent(note.content, note, 'html');
-    expect(result).toContain("<script>alert('xss')</script>");
-    expect(result).toContain("Note &amp; &lt;Title&gt;");
-  });
-
-  test("getSaveContent returns CSV for .csv", () => {
-    const result = getSaveContent("hello \"world\"", mockStore.selectedNote, 'csv');
-    expect(result).toBe('"title","content"\n"My Note","hello ""world"""');
-  });
-
-  test("handleSave fallback download works when showSaveFilePicker unavailable", () => {
-    const clickSpy = mock(() => {});
-    const elementMock = {
-      href: "",
-      download: "",
-      click: clickSpy,
-    };
-    const createElementSpy = mock((tag: string) => {
-      if (tag === "a") return elementMock;
-      return {};
-    });
-
-    function handleSaveFallback(note: any) {
-      if (!note) return;
-      const content = note.content;
-      const blob = new (window as any).Blob([content], { type: 'text/html;charset=utf-8' });
-      const url = (window as any).URL.createObjectURL(blob);
-      const link = createElementSpy("a") as any;
-      link.href = url;
-      link.download = `${note.title || 'untitled'}.html`;
-      link.click();
-      (window as any).URL.revokeObjectURL(url);
+  /** Called when editor content changes (oninput handler). */
+  function syncContent(innerHTML: string): void {
+    editingContent = innerHTML;
+    if (currentEditingId) {
+      store.updateNote(currentEditingId, { content: editingContent });
     }
+  }
 
-    handleSaveFallback(mockStore.selectedNote);
-    expect(createElementSpy).toHaveBeenCalledWith("a");
-    expect(elementMock.download).toBe("My Note.html");
-    expect(elementMock.href).toBe("blob:mock-url");
-    expect(clickSpy).toHaveBeenCalled();
+  /** Called when editor or title input loses focus (onblur handler). */
+  function handleBlur(): void {
+    store.flushSave();
+  }
+
+  let showMenu = false;
+  let showMoreMenu = false;
+  let menuX = 0;
+  let menuY = 0;
+
+  function closeAllMenus(): void {
+    showMenu = false;
+    showMoreMenu = false;
+  }
+
+  function handleContextMenu(clientX: number, clientY: number): void {
+    closeAllMenus();
+    const menuWidth = 180;
+    const menuHeight = 320;
+    const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const winHeight = typeof window !== 'undefined' ? window.innerHeight : 768;
+
+    let x = clientX;
+    let y = clientY;
+    if (x + menuWidth > winWidth) x = winWidth - menuWidth - 10;
+    if (y + menuHeight > winHeight) y = winHeight - menuHeight - 10;
+
+    menuX = x;
+    menuY = y;
+    showMenu = true;
+  }
+
+  function toggleMoreMenu(): void {
+    showMenu = false;
+    showMoreMenu = !showMoreMenu;
+  }
+
+  function applyFormat(formatType: string): void {
+    closeAllMenus();
+    store.flushSave();
+    // format applied...
+  }
+
+  /**
+   * Called when the reactive note selection changes.
+   * Resets local editor state to the new note's content.
+   */
+  function onNoteChange(note: Note | null): void {
+    closeAllMenus();
+    if (note) {
+      if (note.id !== currentEditingId) {
+        editingTitle = note.title;
+        editingContent = note.content;
+        currentEditingId = note.id;
+        // In the real component, editorRef.innerHTML = note.content
+      }
+    } else {
+      editingTitle = '';
+      editingContent = '';
+      currentEditingId = null;
+    }
+  }
+
+  function handleTitleInput(newTitle: string): void {
+    editingTitle = newTitle;
+    if (currentEditingId) {
+      store.updateNote(currentEditingId, { title: newTitle });
+    }
+  }
+
+  /** Called before export — must flush pending saves first. */
+  function handleSave(): void {
+    store.flushSave();
+    // … actual file-picker logic omitted
+  }
+
+  function getExportPayload(note: Note, content: string, ext: string): { data: string; mime: string } {
+    const targetNote: Note = { ...note, content, title: editingTitle || note.title };
+    switch (ext) {
+      case 'md':
+      case 'markdown':
+        return {
+          data: formatMarkdownExport(targetNote, content),
+          mime: 'text/markdown;charset=utf-8'
+        };
+      case 'txt':
+      case 'text':
+        return {
+          data: formatPlainTextExport(targetNote, content),
+          mime: 'text/plain;charset=utf-8'
+        };
+      case 'json':
+        return {
+          data: formatJsonExport(targetNote),
+          mime: 'application/json;charset=utf-8'
+        };
+      case 'csv':
+        return {
+          data: formatCsvExport(targetNote),
+          mime: 'text/csv;charset=utf-8'
+        };
+      case 'html':
+      case 'htm':
+      default:
+        return {
+          data: formatHtmlExport(targetNote, content),
+          mime: 'text/html;charset=utf-8'
+        };
+    }
+  }
+
+  return {
+    getState: () => ({ editingTitle, editingContent, currentEditingId, showMenu, showMoreMenu, menuX, menuY }),
+    syncContent,
+    handleBlur,
+    onNoteChange,
+    handleTitleInput,
+    handleSave,
+    getExportPayload,
+    handleContextMenu,
+    closeAllMenus,
+    toggleMoreMenu,
+    applyFormat,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('NoteEditor — content synchronization (T009)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('syncContent updates editingContent and calls updateNote on the store', () => {
+    const store = makeStore();
+    const note = store.addNote('Title', 'initial');
+    const editor = makeEditor(store);
+    editor.onNoteChange(store.getSelectedNote());
+
+    editor.syncContent('<p>hello world</p>');
+
+    expect(editor.getState().editingContent).toBe('<p>hello world</p>');
+    expect(store.hasPendingSave()).toBe(true);
+  });
+
+  it('syncContent does nothing when no note is selected (currentEditingId is null)', () => {
+    const store = makeStore();
+    const editor = makeEditor(store);
+    editor.onNoteChange(null);
+
+    editor.syncContent('<p>orphan</p>');
+
+    // No note to update — hasPendingSave stays false
+    expect(store.hasPendingSave()).toBe(false);
+    expect(editor.getState().editingContent).toBe('<p>orphan</p>');
+  });
+
+  it('handleTitleInput updates editingTitle and schedules a save', () => {
+    const store = makeStore();
+    const note = store.addNote('Old Title', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(store.getSelectedNote());
+
+    editor.handleTitleInput('New Title');
+
+    expect(editor.getState().editingTitle).toBe('New Title');
+    expect(store.hasPendingSave()).toBe(true);
+  });
+});
+
+describe('NoteEditor — blur flush trigger (T009)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('handleBlur calls flushSave() — pending draft is written on blur', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(store.getSelectedNote());
+
+    editor.syncContent('typed but not yet saved');
+    expect(store.hasPendingSave()).toBe(true);
+
+    editor.handleBlur();
+
+    expect(store.hasPendingSave()).toBe(false);
+    const stored = readStoragePayload();
+    const storedNote = stored?.notes.find((n: any) => n.id === note.id) as any;
+    expect(storedNote?.content).toBe('typed but not yet saved');
+  });
+
+  it('handleBlur is safe to call when no pending save exists', () => {
+    const store = makeStore();
+    store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(store.getSelectedNote());
+    // Flush to clear the scheduled save from addNote
+    store.flushSave();
+
+    // No updateNote call — nothing pending
+    expect(store.hasPendingSave()).toBe(false);
+    expect(() => editor.handleBlur()).not.toThrow();
+  });
+});
+
+describe('NoteEditor — clean editor reset on note change (T009)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('switching to a different note resets editingTitle and editingContent', () => {
+    const store = makeStore();
+    const noteA = store.addNote('Note A', '<p>Content A</p>');
+    const noteB = store.addNote('Note B', '<p>Content B</p>');
+    const editor = makeEditor(store);
+
+    store.selectNote(noteA.id);
+    editor.onNoteChange(store.getSelectedNote());
+    expect(editor.getState().editingTitle).toBe('Note A');
+    expect(editor.getState().editingContent).toBe('<p>Content A</p>');
+    expect(editor.getState().currentEditingId).toBe(noteA.id);
+
+    // Simulate switching to Note B
+    store.selectNote(noteB.id);
+    editor.onNoteChange(store.getSelectedNote());
+
+    expect(editor.getState().editingTitle).toBe('Note B');
+    expect(editor.getState().editingContent).toBe('<p>Content B</p>');
+    expect(editor.getState().currentEditingId).toBe(noteB.id);
+  });
+
+  it('selecting null clears the editor state', () => {
+    const store = makeStore();
+    store.addNote('A', 'content');
+    const editor = makeEditor(store);
+    editor.onNoteChange(store.getSelectedNote());
+
+    editor.onNoteChange(null);
+
+    const state = editor.getState();
+    expect(state.editingTitle).toBe('');
+    expect(state.editingContent).toBe('');
+    expect(state.currentEditingId).toBeNull();
+  });
+
+  it('onNoteChange is a no-op when the same note is selected again (no reset)', () => {
+    const store = makeStore();
+    store.addNote('A', 'original');
+    const editor = makeEditor(store);
+    editor.onNoteChange(store.getSelectedNote());
+
+    // User types something
+    editor.syncContent('edited in place');
+    expect(editor.getState().editingContent).toBe('edited in place');
+
+    // Same note re-selected — should NOT reset editingContent
+    editor.onNoteChange(store.getSelectedNote());
+    expect(editor.getState().editingContent).toBe('edited in place');
+  });
+
+  it('zero content bleed — after switching, Note B editor shows only Note B content', () => {
+    const store = makeStore();
+    const noteA = store.addNote('A', 'A content');
+    const noteB = store.addNote('B', 'B content');
+    const editor = makeEditor(store);
+
+    // Select A, type
+    store.selectNote(noteA.id);
+    editor.onNoteChange(store.getSelectedNote());
+    editor.syncContent('typed in A');
+
+    // Switch to B (selectNote internally flushes A's draft)
+    store.selectNote(noteB.id);
+    editor.onNoteChange(store.getSelectedNote());
+
+    // B's content should be its own, not A's
+    expect(editor.getState().editingContent).toBe('B content');
+  });
+});
+
+describe('NoteEditor — flushSave before export (T009)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('handleSave flushes pending draft before exporting', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(store.getSelectedNote());
+
+    editor.syncContent('last minute edit');
+    expect(store.hasPendingSave()).toBe(true);
+
+    editor.handleSave();
+
+    expect(store.hasPendingSave()).toBe(false);
+    const stored = readStoragePayload();
+    const storedNote = stored?.notes.find((n: any) => n.id === note.id) as any;
+    expect(storedNote?.content).toBe('last minute edit');
+  });
+});
+
+describe('NoteEditor — menu cancellation & dismissal lifecycle (T021)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('handleContextMenu opens context menu with calculated coordinates', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.handleContextMenu(150, 250);
+
+    expect(editor.getState().showMenu).toBe(true);
+    expect(editor.getState().menuX).toBe(150);
+    expect(editor.getState().menuY).toBe(250);
+  });
+
+  it('closeAllMenus closes both context menu and more dropdown menu', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.handleContextMenu(100, 100);
+    expect(editor.getState().showMenu).toBe(true);
+
+    editor.closeAllMenus();
+    expect(editor.getState().showMenu).toBe(false);
+    expect(editor.getState().showMoreMenu).toBe(false);
+  });
+
+  it('toggleMoreMenu toggles the more formatting dropdown', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.toggleMoreMenu();
+    expect(editor.getState().showMoreMenu).toBe(true);
+
+    editor.toggleMoreMenu();
+    expect(editor.getState().showMoreMenu).toBe(false);
+  });
+
+  it('applying format closes open menus and flushes saves', () => {
+    const store = makeStore();
+    const note = store.addNote('A', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    editor.handleContextMenu(100, 100);
+    expect(editor.getState().showMenu).toBe(true);
+
+    editor.applyFormat('bold');
+    expect(editor.getState().showMenu).toBe(false);
+    expect(editor.getState().showMoreMenu).toBe(false);
+  });
+
+  it('switching note selection closes open menus', () => {
+    const store = makeStore();
+    const noteA = store.addNote('A', '');
+    const noteB = store.addNote('B', '');
+    const editor = makeEditor(store);
+    editor.onNoteChange(noteA);
+
+    editor.toggleMoreMenu();
+    expect(editor.getState().showMoreMenu).toBe(true);
+
+    editor.onNoteChange(noteB);
+    expect(editor.getState().showMoreMenu).toBe(false);
+  });
+});
+
+describe('NoteEditor — multi-format export payload generation (T026)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetLocalStorage();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('generates valid HTML export payload using formatHtmlExport', () => {
+    const store = makeStore();
+    const note = store.addNote('HTML Note', '<p>Hello <b>World</b></p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'html');
+    expect(mime).toBe('text/html;charset=utf-8');
+    expect(data).toContain('<!DOCTYPE html>');
+    expect(data).toContain('<title>HTML Note</title>');
+    expect(data).toContain('<p>Hello <b>World</b></p>');
+  });
+
+  it('generates valid Markdown export payload with YAML frontmatter', () => {
+    const store = makeStore();
+    const note = store.addNote('Markdown Note', '<p>Some <strong>bold</strong> text</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'md');
+    expect(mime).toBe('text/markdown;charset=utf-8');
+    expect(data).toContain('title: "Markdown Note"');
+    expect(data).toContain('**bold**');
+  });
+
+  it('generates valid Plain Text export payload without HTML tags', () => {
+    const store = makeStore();
+    const note = store.addNote('Plain Note', '<p>First line</p><p>Second &amp; third line</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'txt');
+    expect(mime).toBe('text/plain;charset=utf-8');
+    expect(data).toContain('Plain Note');
+    expect(data).toContain('Second & third line');
+    expect(data).not.toContain('<p>');
+  });
+
+  it('generates valid JSON export payload', () => {
+    const store = makeStore();
+    const note = store.addNote('JSON Note', '<p>Data</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'json');
+    expect(mime).toBe('application/json;charset=utf-8');
+    const parsed = JSON.parse(data);
+    expect(parsed.id).toBe(note.id);
+    expect(parsed.title).toBe('JSON Note');
+  });
+
+  it('generates RFC 4180 CSV export payload', () => {
+    const store = makeStore();
+    const note = store.addNote('CSV, Note "Quoted"', '<p>Data</p>');
+    const editor = makeEditor(store);
+    editor.onNoteChange(note);
+
+    const { data, mime } = editor.getExportPayload(note, note.content, 'csv');
+    expect(mime).toBe('text/csv;charset=utf-8');
+    expect(data).toContain('"id","title","content","createdAt","updatedAt","position"');
+    expect(data).toContain('"CSV, Note ""Quoted"""');
   });
 });

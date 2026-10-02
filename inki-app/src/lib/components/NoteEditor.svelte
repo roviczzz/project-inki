@@ -17,8 +17,15 @@
   import ZoomIn from '@lucide/svelte/icons/zoom-in';
   import ZoomOut from '@lucide/svelte/icons/zoom-out';
   import { Separator } from '$lib/components/ui/separator/index.js';
-  import { getSelectedNote, updateNote, addNote, selectNote, getNotes, type Note } from '$lib/stores/notes.svelte.ts';
+  import { getSelectedNote, updateNote, addNote, selectNote, getNotes, flushSave, type Note } from '$lib/stores/notes.svelte.ts';
   import { getZoomLevel, zoomIn, zoomOut, resetZoom } from '$lib/stores/zoom.svelte.ts';
+  import {
+    formatHtmlExport,
+    formatMarkdownExport,
+    formatPlainTextExport,
+    formatJsonExport,
+    formatCsvExport
+  } from '$lib/utils/export.ts';
 
   let editingTitle = $state('');
   let editingContent = $state('');
@@ -44,6 +51,7 @@
 
   function handleContextMenu(e: MouseEvent) {
     e.preventDefault();
+    closeAllMenus();
     const menuWidth = 180;
     const menuHeight = 320;
     let x = e.clientX;
@@ -75,7 +83,10 @@
   }
 
   function applyFormat(formatType: string) {
+    closeAllMenus();
     if (!editorRef) return;
+    // Flush pending save before format execution so state is consistent
+    flushSave();
     editorRef.focus();
 
     switch (formatType) {
@@ -127,6 +138,7 @@
   }
 
   $effect(() => {
+    closeAllMenus();
     const note = getSelectedNote();
     if (note) {
       if (note.id !== currentEditingId) {
@@ -164,7 +176,12 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && ['b', 'i', 'u', 's', 'z', 'y'].includes(e.key.toLowerCase())) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      handleSave();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && ['b', 'i', 'u', 'z', 'y'].includes(e.key.toLowerCase())) {
       setTimeout(syncContent, 0);
     }
   }
@@ -173,82 +190,109 @@
     setTimeout(syncContent, 0);
   }
 
+  /** Flush pending save on blur — ensures draft is persisted before focus leaves editor. */
+  function handleEditorBlur(): void {
+    syncContent();
+    flushSave();
+  }
+
   function handleCreate(): void {
     const note = addNote();
     selectNote(note.id);
   }
 
-  function getSaveContent(content: string, note: Note, ext: string): string {
+  function downloadFile(filename: string, content: string, mime: string): void {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+
+  function getExportPayload(note: Note, content: string, ext: string): { data: string; mime: string } {
+    const targetNote: Note = { ...note, content, title: editingTitle || note.title };
     switch (ext) {
+      case 'md':
+      case 'markdown':
+        return {
+          data: formatMarkdownExport(targetNote, content),
+          mime: 'text/markdown;charset=utf-8'
+        };
+      case 'txt':
+      case 'text':
+        return {
+          data: formatPlainTextExport(targetNote, content),
+          mime: 'text/plain;charset=utf-8'
+        };
       case 'json':
-        return JSON.stringify(
-          { id: note.id, title: note.title, content, createdAt: note.createdAt, updatedAt: Date.now() },
-          null,
-          2
-        );
-      case 'html':
-        return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>${escHtml(note.title)}</title></head>
-<body>
-<h1>${escHtml(note.title)}</h1>
-${content}
-</body>
-</html>`;
+        return {
+          data: formatJsonExport(targetNote),
+          mime: 'application/json;charset=utf-8'
+        };
       case 'csv':
-        return `"title","content"\n"${escCsv(note.title)}","${escCsv(content)}"`;
+        return {
+          data: formatCsvExport(targetNote),
+          mime: 'text/csv;charset=utf-8'
+        };
+      case 'html':
+      case 'htm':
       default:
-        return content;
+        return {
+          data: formatHtmlExport(targetNote, content),
+          mime: 'text/html;charset=utf-8'
+        };
     }
   }
 
-  function escHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function escCsv(s: string): string {
-    return s.replace(/"/g, '""');
-  }
-
-  async function handleSave(): Promise<void> {
+  async function handleSave(preferredExt: string = 'md'): Promise<void> {
+    syncContent();
+    flushSave();
     const note = getSelectedNote();
     if (!note) return;
-    const content = editingContent || note.content;
+    const content = editorRef ? editorRef.innerHTML : (editingContent || note.content || '');
+    const title = editingTitle || note.title || 'untitled';
+    const currentNote: Note = { ...note, content, title };
+
+    const extChoice = preferredExt.toLowerCase();
+    const { data: defaultData, mime: defaultMime } = getExportPayload(currentNote, content, extChoice);
+    const defaultFilename = `${title}.${extChoice === 'markdown' ? 'md' : extChoice}`;
 
     if ('showSaveFilePicker' in window) {
       try {
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: `${note.title || 'untitled'}.html`,
+          suggestedName: defaultFilename,
           types: [
-            { description: 'HTML', accept: { 'text/html': ['.html'] } },
             { description: 'Markdown', accept: { 'text/markdown': ['.md'] } },
+            { description: 'HTML', accept: { 'text/html': ['.html'] } },
             { description: 'Plain Text', accept: { 'text/plain': ['.txt'] } },
             { description: 'JSON', accept: { 'application/json': ['.json'] } },
             { description: 'CSV', accept: { 'text/csv': ['.csv'] } },
           ],
         });
-        const name = handle.name || '';
-        const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() || 'html' : 'html';
-        const fileContent = getSaveContent(content, note, ext);
-        const writable = await handle.createWritable();
-        await writable.write(fileContent);
-        await writable.close();
-      } catch {
-        // User cancelled
+        const name = handle.name || defaultFilename;
+        const chosenExt = name.includes('.') ? name.split('.').pop()?.toLowerCase() || extChoice : extChoice;
+        const targetPayload = getExportPayload(currentNote, content, chosenExt);
+        try {
+          const writable = await handle.createWritable();
+          await writable.write(targetPayload.data);
+          await writable.close();
+        } catch (writeErr) {
+          downloadFile(name, targetPayload.data, targetPayload.mime);
+        }
+      } catch (pickerErr: any) {
+        if (pickerErr?.name === 'AbortError') {
+          return;
+        }
+        downloadFile(defaultFilename, defaultData, defaultMime);
       }
     } else {
-      // Fallback: download as HTML
-      const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${note.title || 'untitled'}.html`;
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }, 100);
+      downloadFile(defaultFilename, defaultData, defaultMime);
     }
   }
 </script>
@@ -260,12 +304,13 @@ ${content}
         <Input
           value={editingTitle}
           oninput={handleTitleInput}
+          onblur={handleEditorBlur}
           placeholder="Note title"
           class="text-8xl font-bold border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent editor-input"
         />
       </div>
       <div class="flex items-center gap-2 pl-4">
-        <Button variant="outline" size="sm" onclick={handleSave} class="flex items-center gap-2">
+        <Button variant="outline" size="sm" onclick={() => handleSave()} class="flex items-center gap-2">
           <Save class="size-4" />
           Save
         </Button>
@@ -368,6 +413,7 @@ ${content}
         oninput={handleContentInput}
         onkeydown={handleKeydown}
         oncut={handleCut}
+        onblur={handleEditorBlur}
         role="textbox"
         aria-label="Note content"
         style="zoom: {zoomLevel / 100}"
@@ -404,7 +450,7 @@ ${content}
   </div>
 {/if}
 
-<svelte:window onclick={closeAllMenus} onkeydown={(e) => e.key === 'Escape' && closeAllMenus()} />
+<svelte:window onclick={closeAllMenus} onkeydown={(e) => e.key === 'Escape' && closeAllMenus()} onblur={closeAllMenus} />
 
 {#if showMenu}
   <div
