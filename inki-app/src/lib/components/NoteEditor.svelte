@@ -17,7 +17,7 @@
   import ZoomIn from '@lucide/svelte/icons/zoom-in';
   import ZoomOut from '@lucide/svelte/icons/zoom-out';
   import { Separator } from '$lib/components/ui/separator/index.js';
-  import { getSelectedNote, updateNote, addNote, selectNote, getNotes, type Note } from '$lib/stores/notes.svelte.ts';
+  import { getSelectedNote, updateNote, addNote, selectNote, getNotes, flushSave, type Note } from '$lib/stores/notes.svelte.ts';
   import { getZoomLevel, zoomIn, zoomOut, resetZoom } from '$lib/stores/zoom.svelte.ts';
 
   let editingTitle = $state('');
@@ -76,6 +76,8 @@
 
   function applyFormat(formatType: string) {
     if (!editorRef) return;
+    // Flush pending save before format execution so state is consistent
+    flushSave();
     editorRef.focus();
 
     switch (formatType) {
@@ -173,6 +175,11 @@
     setTimeout(syncContent, 0);
   }
 
+  /** Flush pending save on blur — ensures draft is persisted before focus leaves editor. */
+  function handleEditorBlur(): void {
+    flushSave();
+  }
+
   function handleCreate(): void {
     const note = addNote();
     selectNote(note.id);
@@ -211,6 +218,8 @@ ${content}
   }
 
   async function handleSave(): Promise<void> {
+    // Flush any pending draft before generating the export blob
+    flushSave();
     const note = getSelectedNote();
     if (!note) return;
     const content = editingContent || note.content;
@@ -260,6 +269,7 @@ ${content}
         <Input
           value={editingTitle}
           oninput={handleTitleInput}
+          onblur={handleEditorBlur}
           placeholder="Note title"
           class="text-8xl font-bold border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent editor-input"
         />
@@ -368,6 +378,7 @@ ${content}
         oninput={handleContentInput}
         onkeydown={handleKeydown}
         oncut={handleCut}
+        onblur={handleEditorBlur}
         role="textbox"
         aria-label="Note content"
         style="zoom: {zoomLevel / 100}"

@@ -2,6 +2,7 @@
   import "../app.css";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { zoomIn, zoomOut, resetZoom } from "$lib/stores/zoom.svelte.ts";
+  import { flushSave } from "$lib/stores/notes.svelte.ts";
   let { children } = $props();
 
   let paletteOpen = $state(false);
@@ -39,6 +40,6 @@
 </script>
 
 <CommandPalette open={paletteOpen} onOpenChange={(o: boolean) => paletteOpen = o} />
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} onbeforeunload={() => flushSave()} onunload={() => flushSave()} />
 
 {@render children()}

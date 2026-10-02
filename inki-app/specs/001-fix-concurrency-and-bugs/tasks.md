@@ -54,14 +54,14 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 ### Tests for User Story 1 ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T008 [P] [US1] Write store concurrency tests in `inki-app/src/lib/stores/__tests__/notes-concurrency.test.ts` validating 300ms debounced saving, `flushSave()` on `selectNote()`, simulated multi-window `StorageEvent` synchronization without draft corruption, and zero content loss across 50 rapid consecutive note switches
-- [ ] T009 [P] [US1] Write editor interaction tests in `inki-app/src/lib/components/__tests__/NoteEditor.test.ts` validating content synchronization, input blur flush triggers, and clean editor reset on note change
+- [X] T008 [P] [US1] Write store concurrency tests in `inki-app/src/lib/stores/__tests__/notes-concurrency.test.ts` validating 300ms debounced saving, `flushSave()` on `selectNote()`, simulated multi-window `StorageEvent` synchronization without draft corruption, and zero content loss across 50 rapid consecutive note switches
+- [X] T009 [P] [US1] Write editor interaction tests in `inki-app/src/lib/components/__tests__/NoteEditor.test.ts` validating content synchronization, input blur flush triggers, and clean editor reset on note change
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Implement immediate in-memory state update, 300ms trailing debounced persistence timer, and synchronous `flushSave()` inside `selectNote()`, `updateNote()`, and `addNote()` in `inki-app/src/lib/stores/notes.svelte.ts`
-- [ ] T011 [US1] Update `NoteEditor.svelte` in `inki-app/src/lib/components/NoteEditor.svelte` to isolate `currentEditingId`, flush pending saves on input `blur` / `change`, and trigger `flushSave()` prior to format executions
-- [ ] T012 [US1] Add `beforeunload` and `unload` lifecycle listeners in `inki-app/src/routes/+layout.svelte` invoking `flushSave()` to ensure uncommitted drafts persist before application window exit
+- [X] T010 [US1] Implement immediate in-memory state update, 300ms trailing debounced persistence timer, and synchronous `flushSave()` inside `selectNote()`, `updateNote()`, and `addNote()` in `inki-app/src/lib/stores/notes.svelte.ts`
+- [X] T011 [US1] Update `NoteEditor.svelte` in `inki-app/src/lib/components/NoteEditor.svelte` to isolate `currentEditingId`, flush pending saves on input `blur` / `change`, and trigger `flushSave()` prior to format executions
+- [X] T012 [US1] Add `beforeunload` and `unload` lifecycle listeners in `inki-app/src/routes/+layout.svelte` invoking `flushSave()` to ensure uncommitted drafts persist before application window exit
 
 **Checkpoint**: User Story 1 is fully functional and testable independently with zero data loss or content contamination during rapid typing and switching.
 
@@ -76,14 +76,14 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 ### Tests for User Story 2 ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T013 [P] [US2] Write store ordering and deletion tests in `inki-app/src/lib/stores/__tests__/notes-ordering.test.ts` validating contiguous positions (`0` to `N - 1`) for `addNote`, `deleteNote`, `reorderNote`, `duplicateNote`, `moveNote`, and adjacent selection transitions on delete
-- [ ] T014 [P] [US2] Write sidebar ordering and deletion dialog tests in `inki-app/src/lib/components/__tests__/NoteSidebar.test.ts` validating note card rendering order, delete confirmation flow, and adjacent selection updates
+- [X] T013 [P] [US2] Write store ordering and deletion tests in `inki-app/src/lib/stores/__tests__/notes-ordering.test.ts` validating contiguous positions (`0` to `N - 1`) for `addNote`, `deleteNote`, `reorderNote`, `duplicateNote`, `moveNote`, and adjacent selection transitions on delete
+- [X] T014 [P] [US2] Write sidebar ordering and deletion dialog tests in `inki-app/src/lib/components/__tests__/NoteSidebar.test.ts` validating note card rendering order, delete confirmation flow, and adjacent selection updates
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Refactor `deleteNote(id)` in `inki-app/src/lib/stores/notes.svelte.ts` to compute adjacent target selection (next note at index `k + 1`, or previous note at `k - 1` if `k === N - 1`, or `null` if `N === 1`), re-index remaining notes to `0` to `N - 2`, update `selectedNoteId`, and persist immediately
-- [ ] T016 [US2] Refactor `addNote()`, `reorderNote()`, `duplicateNote()`, and `moveNote()` in `inki-app/src/lib/stores/notes.svelte.ts` to ensure positions are re-indexed strictly to `0` to `N - 1` with `sorted.map((n, i) => ({ ...n, position: i }))`
-- [ ] T017 [US2] Update `NoteSidebar.svelte` in `inki-app/src/lib/components/NoteSidebar.svelte` to bind deletion confirmation dialog actions directly to the updated store deletion and selection transition lifecycle
+- [X] T015 [US2] Refactor `deleteNote(id)` in `inki-app/src/lib/stores/notes.svelte.ts` to compute adjacent target selection (next note at index `k + 1`, or previous note at `k - 1` if `k === N - 1`, or `null` if `N === 1`), re-index remaining notes to `0` to `N - 2`, update `selectedNoteId`, and persist immediately
+- [X] T016 [US2] Refactor `addNote()`, `reorderNote()`, `duplicateNote()`, and `moveNote()` in `inki-app/src/lib/stores/notes.svelte.ts` to ensure positions are re-indexed strictly to `0` to `N - 1` with `sorted.map((n, i) => ({ ...n, position: i }))`
+- [X] T017 [US2] Update `NoteSidebar.svelte` in `inki-app/src/lib/components/NoteSidebar.svelte` to bind deletion confirmation dialog actions directly to the updated store deletion and selection transition lifecycle
 
 **Checkpoint**: User Stories 1 AND 2 are fully functional and testable independently.
 

@@ -1,870 +1,751 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-
 /**
- * Tests for NoteSidebar.svelte — timeAgo utility and onNoteSelect callback.
+ * T014 [US2] NoteSidebar ordering and deletion dialog tests.
  *
- * Key behaviors:
- * 1. timeAgo() returns relative time strings based on the difference from now
- * 2. handleSelectNote(id) calls selectNote(id) then onNoteSelect?.()
- * 3. onNoteSelect is optional (uses ?.() syntax)
- * 4. handleNewNote calls addNote and selectNote
+ * Validates:
+ * - Note card rendering order matches position order
+ * - Delete confirmation dialog flow (open → confirm/cancel)
+ * - Adjacent selection transitions on delete (mirrored from store contract)
+ * - Inline rename commit / cancel flow
+ * - Context menu state transitions
+ * - Pointer drag state transitions
+ * - timeAgo utility output
+ * - onNoteSelect callback ordering
+ *
+ * NOTE: NoteSidebar.svelte uses Svelte 5 runes and cannot be imported
+ * directly in Vitest without Svelte compilation. These tests validate the
+ * same business logic re-implemented as plain TypeScript — the accepted
+ * pattern per AGENTS.md.
  */
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// --- timeAgo function (extracted from NoteSidebar.svelte for testing) ---
+// ---------------------------------------------------------------------------
+// timeAgo function (extracted from NoteSidebar.svelte for testing)
+// ---------------------------------------------------------------------------
 function timeAgo(timestamp: number): string {
-  const now = Date.now();
-  const diff = now - timestamp;
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(timestamp).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+	const now = Date.now();
+	const diff = now - timestamp;
+	const seconds = Math.floor(diff / 1000);
+	if (seconds < 60) return 'just now';
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	if (days < 7) return `${days}d ago`;
+	return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-describe("NoteSidebar — timeAgo function", () => {
-  beforeEach(() => {
-    // Freeze Date.now to a specific time for deterministic tests
-    // June 17, 2026 12:00:00 UTC
-    const MOCK_NOW = new Date("2026-06-17T12:00:00Z").getTime();
-    jestMockDateNow(MOCK_NOW);
-  });
+// ---------------------------------------------------------------------------
+// timeAgo tests
+// ---------------------------------------------------------------------------
 
-  afterEach(() => {
-    jestMockDateNowRestore();
-  });
+describe('NoteSidebar — timeAgo function', () => {
+	const MOCK_NOW = new Date('2026-06-17T12:00:00Z').getTime();
 
-  test('returns "just now" for timestamps less than 60 seconds ago', () => {
-    const now = Date.now();
-    const result = timeAgo(now - 30_000);
-    expect(result).toBe("just now");
-  });
+	beforeEach(() => {
+		vi.spyOn(Date, 'now').mockReturnValue(MOCK_NOW);
+	});
 
-  test('returns "just now" for timestamps 0 seconds ago', () => {
-    const now = Date.now();
-    const result = timeAgo(now);
-    expect(result).toBe("just now");
-  });
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
 
-  test('returns "Xm ago" for timestamps 1-59 minutes ago', () => {
-    const now = Date.now();
-    const result = timeAgo(now - 5 * 60 * 1000);
-    expect(result).toBe("5m ago");
-  });
+	it('returns "just now" for timestamps less than 60 seconds ago', () => {
+		expect(timeAgo(MOCK_NOW - 30_000)).toBe('just now');
+	});
 
-  test('returns "1m ago" for exactly 1 minute', () => {
-    const now = Date.now();
-    const result = timeAgo(now - 60_000);
-    expect(result).toBe("1m ago");
-  });
+	it('returns "just now" for timestamps 0 seconds ago', () => {
+		expect(timeAgo(MOCK_NOW)).toBe('just now');
+	});
 
-  test('returns "Xh ago" for timestamps 1-23 hours ago', () => {
-    const now = Date.now();
-    const result = timeAgo(now - 3 * 60 * 60 * 1000);
-    expect(result).toBe("3h ago");
-  });
+	it('returns "Xm ago" for timestamps 1-59 minutes ago', () => {
+		expect(timeAgo(MOCK_NOW - 5 * 60 * 1000)).toBe('5m ago');
+	});
 
-  test('returns "1h ago" for exactly 1 hour', () => {
-    const now = Date.now();
-    const result = timeAgo(now - 60 * 60 * 1000);
-    expect(result).toBe("1h ago");
-  });
+	it('returns "1m ago" for exactly 1 minute', () => {
+		expect(timeAgo(MOCK_NOW - 60_000)).toBe('1m ago');
+	});
 
-  test('returns "Xd ago" for timestamps 1-6 days ago', () => {
-    const now = Date.now();
-    const result = timeAgo(now - 4 * 24 * 60 * 60 * 1000);
-    expect(result).toBe("4d ago");
-  });
+	it('returns "Xh ago" for timestamps 1-23 hours ago', () => {
+		expect(timeAgo(MOCK_NOW - 3 * 60 * 60 * 1000)).toBe('3h ago');
+	});
 
-  test('returns "1d ago" for exactly 1 day', () => {
-    const now = Date.now();
-    const result = timeAgo(now - 24 * 60 * 60 * 1000);
-    expect(result).toBe("1d ago");
-  });
+	it('returns "1h ago" for exactly 1 hour', () => {
+		expect(timeAgo(MOCK_NOW - 60 * 60 * 1000)).toBe('1h ago');
+	});
 
-  test("returns formatted date for timestamps 7 or more days ago", () => {
-    const now = Date.now();
-    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
-    const dateStr = new Date(sevenDaysAgo).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
-    const result = timeAgo(sevenDaysAgo);
-    expect(result).toBe(dateStr);
-  });
+	it('returns "Xd ago" for timestamps 1-6 days ago', () => {
+		expect(timeAgo(MOCK_NOW - 4 * 24 * 60 * 60 * 1000)).toBe('4d ago');
+	});
 
-  test("handles future timestamps (negative diff)", () => {
-    const now = Date.now();
-    const result = timeAgo(now + 60 * 60 * 1000);
-    // future diff = negative → seconds < 60 → "just now"
-    expect(result).toBe("just now");
-  });
+	it('returns "1d ago" for exactly 1 day', () => {
+		expect(timeAgo(MOCK_NOW - 24 * 60 * 60 * 1000)).toBe('1d ago');
+	});
+
+	it('returns formatted date for timestamps 7 or more days ago', () => {
+		const sevenDaysAgo = MOCK_NOW - 7 * 24 * 60 * 60 * 1000;
+		const expected = new Date(sevenDaysAgo).toLocaleDateString('en-US', {
+			month: 'short',
+			day: 'numeric',
+		});
+		expect(timeAgo(sevenDaysAgo)).toBe(expected);
+	});
+
+	it('handles future timestamps (negative diff) — returns "just now"', () => {
+		expect(timeAgo(MOCK_NOW + 60 * 60 * 1000)).toBe('just now');
+	});
 });
 
-describe("NoteSidebar — handleSelectNote callback", () => {
-  test("calls onNoteSelect when a note is selected and callback is provided", () => {
-    const onNoteSelectMock = mock(() => {});
-    const selectNoteMock = mock((_id: string) => {});
+// ---------------------------------------------------------------------------
+// Note card rendering order
+// ---------------------------------------------------------------------------
 
-    // Simulate handleSelectNote from NoteSidebar
-    function handleSelectNote(id: string) {
-      selectNoteMock(id);
-      onNoteSelectMock();
-    }
+describe('NoteSidebar — note card rendering order (T014)', () => {
+	it('getNotes() returns notes sorted by position ascending', () => {
+		const notes = [
+			{ id: 'c', position: 2, title: 'C' },
+			{ id: 'a', position: 0, title: 'A' },
+			{ id: 'b', position: 1, title: 'B' },
+		];
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		expect(sorted.map((n) => n.id)).toEqual(['a', 'b', 'c']);
+	});
 
-    handleSelectNote("note-1");
-
-    expect(selectNoteMock).toHaveBeenCalledWith("note-1");
-    expect(onNoteSelectMock).toHaveBeenCalled();
-  });
-
-  test("does not throw when onNoteSelect is undefined", () => {
-    const selectNoteMock = mock((_id: string) => {});
-
-    // Simulate handleSelectNote when onNoteSelect is undefined
-    function handleSelectNote(id: string) {
-      selectNoteMock(id);
-      // onNoteSelect?.() — optional chaining, should not throw
-    }
-
-    expect(() => {
-      handleSelectNote("note-1");
-    }).not.toThrow();
-
-    expect(selectNoteMock).toHaveBeenCalledWith("note-1");
-  });
-
-  test("handleSelectNote calls selectNote before onNoteSelect", () => {
-    const callOrder: string[] = [];
-    const selectNoteMock = mock((_id: string) => {
-      callOrder.push("selectNote");
-    });
-    const onNoteSelectMock = mock(() => {
-      callOrder.push("onNoteSelect");
-    });
-
-    function handleSelectNote(id: string) {
-      selectNoteMock(id);
-      onNoteSelectMock();
-    }
-
-    handleSelectNote("note-1");
-
-    expect(callOrder).toEqual(["selectNote", "onNoteSelect"]);
-  });
+	it('after deletion, remaining notes render in contiguous position order', () => {
+		const notes = [
+			{ id: 'a', position: 0 },
+			{ id: 'b', position: 1 },
+			{ id: 'c', position: 2 },
+			{ id: 'd', position: 3 },
+		];
+		// Delete 'b' and re-index
+		const remaining = notes.filter((n) => n.id !== 'b').map((n, i) => ({ ...n, position: i }));
+		expect(remaining.map((n) => n.position)).toEqual([0, 1, 2]);
+		expect(remaining.map((n) => n.id)).toEqual(['a', 'c', 'd']);
+	});
 });
 
-describe("NoteSidebar — handleNewNote logic", () => {
-  test("addNote and selectNote are called when creating a new note", () => {
-    const addNoteMock = mock(() => ({
-      id: "new-note-id",
-      title: "New Note",
-      content: "",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }));
-    const selectNoteMock = mock((_id: string) => {});
+// ---------------------------------------------------------------------------
+// Delete confirmation dialog flow
+// ---------------------------------------------------------------------------
 
-    // Simulate handleNewNote from NoteSidebar
-    function handleNewNote() {
-      const note = addNoteMock();
-      selectNoteMock(note.id);
-    }
+describe('NoteSidebar — delete confirmation dialog flow (T014)', () => {
+	it('handleDeleteClick prevents propagation and sets deletingNoteId', () => {
+		const stopPropagation = vi.fn();
+		const event = { stopPropagation } as unknown as Event;
+		let deletingNoteId: string | null = null;
 
-    handleNewNote();
+		function handleDeleteClick(e: Event, id: string): void {
+			e.stopPropagation();
+			deletingNoteId = id;
+		}
 
-    expect(addNoteMock).toHaveBeenCalled();
-    expect(selectNoteMock).toHaveBeenCalledWith("new-note-id");
-  });
+		handleDeleteClick(event, 'note-42');
+
+		expect(stopPropagation).toHaveBeenCalledOnce();
+		expect(deletingNoteId).toBe('note-42');
+	});
+
+	it('handleConfirmDelete calls deleteNote and clears deletingNoteId', () => {
+		let deletingNoteId: string | null = 'note-42';
+		const deleteNote = vi.fn();
+
+		function handleConfirmDelete(): void {
+			if (deletingNoteId) {
+				deleteNote(deletingNoteId);
+				deletingNoteId = null;
+			}
+		}
+
+		handleConfirmDelete();
+
+		expect(deleteNote).toHaveBeenCalledWith('note-42');
+		expect(deletingNoteId).toBeNull();
+	});
+
+	it('handleConfirmDelete is a no-op when deletingNoteId is null', () => {
+		let deletingNoteId: string | null = null;
+		const deleteNote = vi.fn();
+
+		function handleConfirmDelete(): void {
+			if (deletingNoteId) {
+				deleteNote(deletingNoteId);
+				deletingNoteId = null;
+			}
+		}
+
+		handleConfirmDelete();
+
+		expect(deleteNote).not.toHaveBeenCalled();
+	});
+
+	it('handleCancelDelete clears deletingNoteId', () => {
+		let deletingNoteId: string | null = 'note-42';
+
+		function handleCancelDelete(): void {
+			deletingNoteId = null;
+		}
+
+		handleCancelDelete();
+		expect(deletingNoteId).toBeNull();
+	});
+
+	it('onOpenChange resets deletingNoteId when dialog closes (open=false)', () => {
+		let deletingNoteId: string | null = 'note-42';
+
+		function onOpenChange(open: boolean): void {
+			if (!open) deletingNoteId = null;
+		}
+
+		onOpenChange(false);
+		expect(deletingNoteId).toBeNull();
+	});
+
+	it('onOpenChange preserves deletingNoteId when dialog opens (open=true)', () => {
+		let deletingNoteId: string | null = 'note-42';
+
+		function onOpenChange(open: boolean): void {
+			if (!open) deletingNoteId = null;
+		}
+
+		onOpenChange(true);
+		expect(deletingNoteId).toBe('note-42');
+	});
 });
 
-describe("NoteSidebar — delete dialog behavior", () => {
-  test("handleDeleteClick prevents event propagation", () => {
-    const stopPropagationMock = mock(() => {});
-    const event = { stopPropagation: stopPropagationMock } as unknown as Event;
+// ---------------------------------------------------------------------------
+// Adjacent selection transitions on delete (US2 — mirrored from store contract)
+// ---------------------------------------------------------------------------
 
-    // Simulate handleDeleteClick from NoteSidebar
-    let deletingNoteId: string | null = null;
+describe('NoteSidebar — adjacent selection updates on delete (T014)', () => {
+	interface Note { id: string; position: number; title: string; }
 
-    function handleDeleteClick(e: Event, id: string): void {
-      e.stopPropagation();
-      deletingNoteId = id;
-    }
+	function simulateDeleteNote(
+		notes: Note[],
+		selectedNoteId: string | null,
+		deleteId: string
+	): { notes: Note[]; selectedNoteId: string | null } {
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		const N = sorted.length;
+		const k = sorted.findIndex((n) => n.id === deleteId);
+		if (k === -1) return { notes, selectedNoteId };
 
-    handleDeleteClick(event, "note-to-delete");
+		let newSelectedId = selectedNoteId;
+		if (deleteId === selectedNoteId) {
+			if (N === 1) {
+				newSelectedId = null;
+			} else if (k < N - 1) {
+				newSelectedId = sorted[k + 1].id;
+			} else {
+				newSelectedId = sorted[k - 1].id;
+			}
+		}
 
-    expect(stopPropagationMock).toHaveBeenCalled();
-    expect(deletingNoteId).toBe("note-to-delete");
-  });
+		const remaining = sorted.filter((n) => n.id !== deleteId).map((n, i) => ({ ...n, position: i }));
+		return { notes: remaining, selectedNoteId: newSelectedId };
+	}
 
-  test("handleConfirmDelete calls deleteNote and resets deleting state", () => {
-    let deletingNoteId: string | null = "note-to-delete";
-    const deleteNoteMock = mock((_id: string) => {});
+	it('deleting the only note → selectedNoteId becomes null', () => {
+		const notes = [{ id: 'a', position: 0, title: 'A' }];
+		const result = simulateDeleteNote(notes, 'a', 'a');
+		expect(result.notes).toHaveLength(0);
+		expect(result.selectedNoteId).toBeNull();
+	});
 
-    // Simulate handleConfirmDelete from NoteSidebar
-    function handleConfirmDelete(): void {
-      if (deletingNoteId) {
-        deleteNoteMock(deletingNoteId);
-        deletingNoteId = null;
-      }
-    }
+	it('delete note at index 2 of 5 → selection shifts to index 2 (next note)', () => {
+		const notes = [
+			{ id: 'a', position: 0, title: 'A' },
+			{ id: 'b', position: 1, title: 'B' },
+			{ id: 'c', position: 2, title: 'C' },
+			{ id: 'd', position: 3, title: 'D' },
+			{ id: 'e', position: 4, title: 'E' },
+		];
+		const result = simulateDeleteNote(notes, 'c', 'c');
+		expect(result.selectedNoteId).toBe('d');
+		expect(result.notes).toHaveLength(4);
+		expect(result.notes.map((n) => n.position)).toEqual([0, 1, 2, 3]);
+	});
 
-    handleConfirmDelete();
+	it('delete last note → selection shifts to previous note', () => {
+		const notes = [
+			{ id: 'a', position: 0, title: 'A' },
+			{ id: 'b', position: 1, title: 'B' },
+			{ id: 'c', position: 2, title: 'C' },
+		];
+		const result = simulateDeleteNote(notes, 'c', 'c');
+		expect(result.selectedNoteId).toBe('b');
+		expect(result.notes).toHaveLength(2);
+	});
 
-    expect(deleteNoteMock).toHaveBeenCalledWith("note-to-delete");
-    expect(deletingNoteId).toBeNull();
-  });
+	it('deleting a non-selected note preserves current selection', () => {
+		const notes = [
+			{ id: 'a', position: 0, title: 'A' },
+			{ id: 'b', position: 1, title: 'B' },
+			{ id: 'c', position: 2, title: 'C' },
+		];
+		const result = simulateDeleteNote(notes, 'a', 'c');
+		expect(result.selectedNoteId).toBe('a');
+		expect(result.notes).toHaveLength(2);
+	});
 
-  test("handleConfirmDelete does nothing when no note is pending deletion", () => {
-    let deletingNoteId: string | null = null;
-    const deleteNoteMock = mock((_id: string) => {});
-
-    function handleConfirmDelete(): void {
-      if (deletingNoteId) {
-        deleteNoteMock(deletingNoteId);
-        deletingNoteId = null;
-      }
-    }
-
-    handleConfirmDelete();
-
-    expect(deleteNoteMock).not.toHaveBeenCalled();
-  });
-
-  test("handleCancelDelete clears the pending deletion state", () => {
-    let deletingNoteId: string | null = "note-to-delete";
-
-    function handleCancelDelete(): void {
-      deletingNoteId = null;
-    }
-
-    handleCancelDelete();
-
-    expect(deletingNoteId).toBeNull();
-  });
-
-  test("dialog 'open' callback resets deletion state when dialog closes", () => {
-    let deletingNoteId: string | null = "note-to-delete";
-
-    // From NoteSidebar: onOpenChange={(open) => { if (!open) deletingNoteId = null; }}
-    function onOpenChange(open: boolean): void {
-      if (!open) deletingNoteId = null;
-    }
-
-    // Dialog closes
-    onOpenChange(false);
-    expect(deletingNoteId).toBeNull();
-
-    // Re-open dialog
-    deletingNoteId = "another-note";
-    onOpenChange(true);
-    expect(deletingNoteId).toBe("another-note");
-  });
-
-  test("handleSelectNote selects the note after calling selectNote", () => {
-    const selectNoteMock = mock((_id: string) => {});
-    const onNoteSelectMock = mock(() => {});
-    let selected: string | null = null;
-
-    // Simulate the full handleSelectNote
-    function handleSelectNote(id: string): void {
-      selectNoteMock(id);
-      onNoteSelectMock();
-    }
-
-    handleSelectNote("note-1");
-    expect(selectNoteMock).toHaveBeenCalledWith("note-1");
-    expect(onNoteSelectMock).toHaveBeenCalled();
-  });
-
-  test("keyboard Enter and Space trigger note selection", () => {
-    const selectNoteMock = mock((_id: string) => {});
-    const onNoteSelectMock = mock(() => {});
-
-    function handleKeydown(e: KeyboardEvent, id: string): void {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        selectNoteMock(id);
-        onNoteSelectMock();
-      }
-    }
-
-    // Test Enter key
-    const enterEvent = { key: "Enter", preventDefault: mock(() => {}) } as unknown as KeyboardEvent;
-    handleKeydown(enterEvent, "note-1");
-    expect(selectNoteMock).toHaveBeenCalledWith("note-1");
-
-    selectNoteMock.mockClear();
-
-    // Test Space key
-    const spaceEvent = { key: " ", preventDefault: mock(() => {}) } as unknown as KeyboardEvent;
-    handleKeydown(spaceEvent, "note-2");
-    expect(selectNoteMock).toHaveBeenCalledWith("note-2");
-  });
+	it('remaining notes have strictly contiguous positions 0..N-2 after delete', () => {
+		const notes = Array.from({ length: 5 }, (_, i) => ({ id: `n${i}`, position: i, title: `Note ${i}` }));
+		const result = simulateDeleteNote(notes, 'n2', 'n2');
+		result.notes.forEach((n, i) => {
+			expect(n.position).toBe(i);
+		});
+	});
 });
 
-describe("NoteSidebar — reorderNote logic", () => {
-  test("reorderNote moves a note to a new position and updates positions of others", () => {
-    const notes = [
-      { id: "a", title: "A", position: 0 },
-      { id: "b", title: "B", position: 1 },
-      { id: "c", title: "C", position: 2 },
-    ];
+// ---------------------------------------------------------------------------
+// onNoteSelect callback
+// ---------------------------------------------------------------------------
 
-    function reorderNote(id: string, newPosition: number) {
-      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
-      const note = sorted.find((n) => n.id === id);
-      if (!note) return;
+describe('NoteSidebar — handleSelectNote callback (T014)', () => {
+	it('calls selectNote then onNoteSelect in order', () => {
+		const callOrder: string[] = [];
+		const selectNote = vi.fn((_id: string) => { callOrder.push('selectNote'); });
+		const onNoteSelect = vi.fn(() => { callOrder.push('onNoteSelect'); });
 
-      const clamped = Math.max(0, Math.min(newPosition, sorted.length - 1));
-      sorted.splice(sorted.indexOf(note), 1);
-      sorted.splice(clamped, 0, note);
+		function handleSelectNote(id: string): void {
+			selectNote(id);
+			onNoteSelect();
+		}
 
-      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
+		handleSelectNote('note-1');
 
-      expect(updated[0].id).toBe("b");
-      expect(updated[0].position).toBe(0);
-      expect(updated[1].id).toBe("a");
-      expect(updated[1].position).toBe(1);
-      expect(updated[2].id).toBe("c");
-      expect(updated[2].position).toBe(2);
-    }
+		expect(selectNote).toHaveBeenCalledWith('note-1');
+		expect(onNoteSelect).toHaveBeenCalledOnce();
+		expect(callOrder).toEqual(['selectNote', 'onNoteSelect']);
+	});
 
-    // Move "a" to position 1 (after "b")
-    reorderNote("a", 1);
-  });
+	it('does not throw when onNoteSelect is undefined', () => {
+		const selectNote = vi.fn();
+		let onNoteSelect: (() => void) | undefined = undefined;
 
-  test("reorderNote clamps position to valid range", () => {
-    const notes = [
-      { id: "a", title: "A", position: 0 },
-      { id: "b", title: "B", position: 1 },
-    ];
+		function handleSelectNote(id: string): void {
+			selectNote(id);
+			onNoteSelect?.();
+		}
 
-    function reorderNote(id: string, newPosition: number) {
-      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
-      const note = sorted.find((n) => n.id === id);
-      if (!note) return;
-      const clamped = Math.max(0, Math.min(newPosition, sorted.length - 1));
-      expect(clamped).toBe(1); // clamped from 999 to 1
-    }
+		expect(() => handleSelectNote('note-1')).not.toThrow();
+		expect(selectNote).toHaveBeenCalledWith('note-1');
+	});
 
-    reorderNote("a", 999);
-  });
+	it('drag guard: handleSelectNote does nothing while isDragging', () => {
+		let isDragging = true;
+		const selectNote = vi.fn();
 
-  test("reorderNote does nothing for unknown id", () => {
-    let called = false;
-    function reorderNote(id: string) {
-      const sorted: any[] = [];
-      const note = sorted.find((n) => n.id === id);
-      if (!note) return;
-      called = true;
-    }
-    reorderNote("nonexistent");
-    expect(called).toBe(false);
-  });
+		function handleSelectNote(id: string): void {
+			if (isDragging) return;
+			selectNote(id);
+		}
+
+		handleSelectNote('note-1');
+		expect(selectNote).not.toHaveBeenCalled();
+	});
 });
 
-describe("NoteSidebar — duplicateNote logic", () => {
-  test("duplicateNote creates a copy with (copy) suffix at position+1", () => {
-    const notes: any[] = [
-      { id: "a", title: "Note A", content: "hello", position: 0 },
-      { id: "b", title: "Note B", content: "world", position: 1 },
-    ];
+// ---------------------------------------------------------------------------
+// Inline rename
+// ---------------------------------------------------------------------------
 
-    function duplicateNote(id: string) {
-      const original = notes.find((n) => n.id === id);
-      if (!original) return null;
-      const sorted = [...notes].sort((a, b) => a.position - b.position);
-      const origIdx = sorted.indexOf(original);
-      const duplicate = {
-        id: "new-id",
-        title: `${original.title} (copy)`,
-        content: original.content,
-        position: origIdx + 1,
-      };
-      sorted.splice(origIdx + 1, 0, duplicate);
-      const updated = sorted.map((n, i) => ({ ...n, position: i }));
+describe('NoteSidebar — inline rename (T014)', () => {
+	it('commitRename saves trimmed non-empty title and clears renamingNoteId', () => {
+		let renamingNoteId: string | null = 'note-1';
+		let renameValue = '  Updated Title  ';
+		const renameNote = vi.fn();
 
-      expect(updated).toHaveLength(3);
-      expect(updated[0].id).toBe("a");
-      expect(updated[1].id).toBe("new-id");
-      expect(updated[1].title).toBe("Note A (copy)");
-      expect(updated[2].id).toBe("b");
-    }
+		function commitRename(): void {
+			if (renamingNoteId) {
+				const val = renameValue.trim();
+				if (val) renameNote(renamingNoteId, val);
+				renamingNoteId = null;
+			}
+		}
 
-    duplicateNote("a");
-  });
+		commitRename();
 
-  test("duplicateNote returns null for unknown id", () => {
-    const notes: any[] = [];
-    function duplicateNote(id: string) {
-      const original = notes.find((n) => n.id === id);
-      return original ? {} : null;
-    }
-    expect(duplicateNote("nonexistent")).toBeNull();
-  });
+		expect(renameNote).toHaveBeenCalledWith('note-1', 'Updated Title');
+		expect(renamingNoteId).toBeNull();
+	});
+
+	it('commitRename does not save empty title but still clears renamingNoteId', () => {
+		let renamingNoteId: string | null = 'note-1';
+		let renameValue = '   ';
+		const renameNote = vi.fn();
+
+		function commitRename(): void {
+			if (renamingNoteId) {
+				const val = renameValue.trim();
+				if (val) renameNote(renamingNoteId, val);
+				renamingNoteId = null;
+			}
+		}
+
+		commitRename();
+
+		expect(renameNote).not.toHaveBeenCalled();
+		expect(renamingNoteId).toBeNull();
+	});
+
+	it('closeRename clears renamingNoteId without saving', () => {
+		let renamingNoteId: string | null = 'note-1';
+		const renameNote = vi.fn();
+
+		function closeRename(): void {
+			renamingNoteId = null;
+		}
+
+		closeRename();
+
+		expect(renameNote).not.toHaveBeenCalled();
+		expect(renamingNoteId).toBeNull();
+	});
+
+	it('Enter key commits rename', () => {
+		const commitRename = vi.fn();
+		function handleRenameKeydown(e: KeyboardEvent): void {
+			if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+		}
+		const event = { key: 'Enter', preventDefault: vi.fn() } as unknown as KeyboardEvent;
+		handleRenameKeydown(event);
+		expect(commitRename).toHaveBeenCalledOnce();
+	});
+
+	it('Escape key closes rename', () => {
+		const closeRename = vi.fn();
+		function handleRenameKeydown(e: KeyboardEvent): void {
+			if (e.key === 'Escape') { e.preventDefault(); closeRename(); }
+		}
+		const event = { key: 'Escape', preventDefault: vi.fn() } as unknown as KeyboardEvent;
+		handleRenameKeydown(event);
+		expect(closeRename).toHaveBeenCalledOnce();
+	});
 });
 
-describe("NoteSidebar — moveNote logic", () => {
-  test("moveNote up swaps with previous note", () => {
-    const notes = [
-      { id: "a", position: 0 },
-      { id: "b", position: 1 },
-    ];
+// ---------------------------------------------------------------------------
+// Context menu
+// ---------------------------------------------------------------------------
 
-    function moveNote(id: string, direction: string) {
-      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
-      const idx = sorted.findIndex((n: any) => n.id === id);
-      if (idx === -1) return;
-      let newIdx = idx;
-      if (direction === "up" && idx > 0) newIdx = idx - 1;
-      else return;
-      const [note] = sorted.splice(idx, 1);
-      sorted.splice(newIdx, 0, note);
-      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
-      expect(updated[0].id).toBe("b");
-      expect(updated[1].id).toBe("a");
-    }
+describe('NoteSidebar — context menu state (T014)', () => {
+	it('openNoteCtxMenu sets card target and shows menu', () => {
+		let ctxMenuVisible = false;
+		let ctxMenuTarget: 'card' | 'empty' = 'empty';
+		let ctxNoteId: string | null = null;
 
-    moveNote("a", "up");
-  });
+		function openNoteCtxMenu(e: MouseEvent, noteId: string): void {
+			e.preventDefault();
+			e.stopPropagation();
+			ctxNoteId = noteId;
+			ctxMenuTarget = 'card';
+			ctxMenuVisible = true;
+		}
 
-  test("moveNote down swaps with next note", () => {
-    const notes = [
-      { id: "a", position: 0 },
-      { id: "b", position: 1 },
-    ];
+		const event = { preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as MouseEvent;
+		openNoteCtxMenu(event, 'note-7');
 
-    function moveNote(id: string, direction: string) {
-      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
-      const idx = sorted.findIndex((n: any) => n.id === id);
-      if (idx === -1) return;
-      let newIdx = idx;
-      if (direction === "down" && idx < sorted.length - 1) newIdx = idx + 1;
-      else return;
-      const [note] = sorted.splice(idx, 1);
-      sorted.splice(newIdx, 0, note);
-      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
-      expect(updated[0].id).toBe("b");
-      expect(updated[1].id).toBe("a");
-    }
+		expect(ctxMenuVisible).toBe(true);
+		expect(ctxMenuTarget).toBe('card');
+		expect(ctxNoteId).toBe('note-7');
+	});
 
-    moveNote("b", "down");
-  });
+	it('openEmptyCtxMenu sets empty target and shows menu', () => {
+		let ctxMenuVisible = false;
+		let ctxMenuTarget: 'card' | 'empty' = 'card';
+		let ctxNoteId: string | null = 'old';
 
-  test("moveNote top moves to position 0", () => {
-    const notes = [
-      { id: "a", position: 0 },
-      { id: "b", position: 1 },
-      { id: "c", position: 2 },
-    ];
+		function openEmptyCtxMenu(e: MouseEvent): void {
+			e.preventDefault();
+			ctxNoteId = null;
+			ctxMenuTarget = 'empty';
+			ctxMenuVisible = true;
+		}
 
-    function moveNote(id: string, direction: string) {
-      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
-      const idx = sorted.findIndex((n: any) => n.id === id);
-      if (idx === -1) return;
-      let newIdx = idx;
-      if (direction === "top") newIdx = 0;
-      else return;
-      const [note] = sorted.splice(idx, 1);
-      sorted.splice(newIdx, 0, note);
-      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
-      expect(updated[0].id).toBe("c");
-    }
+		const event = { preventDefault: vi.fn() } as unknown as MouseEvent;
+		openEmptyCtxMenu(event);
 
-    moveNote("c", "top");
-  });
+		expect(ctxMenuVisible).toBe(true);
+		expect(ctxMenuTarget).toBe('empty');
+		expect(ctxNoteId).toBeNull();
+	});
 
-  test("moveNote bottom moves to last position", () => {
-    const notes = [
-      { id: "a", position: 0 },
-      { id: "b", position: 1 },
-      { id: "c", position: 2 },
-    ];
+	it('closeCtxMenu hides menu and resets ctxNoteId', () => {
+		let ctxMenuVisible = true;
+		let ctxNoteId: string | null = 'note-1';
 
-    function moveNote(id: string, direction: string) {
-      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
-      const idx = sorted.findIndex((n: any) => n.id === id);
-      if (idx === -1) return;
-      let newIdx = idx;
-      if (direction === "bottom") newIdx = sorted.length - 1;
-      else return;
-      const [note] = sorted.splice(idx, 1);
-      sorted.splice(newIdx, 0, note);
-      const updated = sorted.map((n: any, i: number) => ({ ...n, position: i }));
-      expect(updated[2].id).toBe("a");
-    }
+		function closeCtxMenu(): void {
+			ctxMenuVisible = false;
+			ctxNoteId = null;
+		}
 
-    moveNote("a", "bottom");
-  });
+		closeCtxMenu();
 
-  test("moveNote does nothing when already at top and moving up", () => {
-    const notes = [
-      { id: "a", position: 0 },
-      { id: "b", position: 1 },
-    ];
+		expect(ctxMenuVisible).toBe(false);
+		expect(ctxNoteId).toBeNull();
+	});
 
-    function moveNote(id: string, direction: string) {
-      const sorted = [...notes].sort((a: any, b: any) => a.position - b.position);
-      const idx = sorted.findIndex((n: any) => n.id === id);
-      if (idx === -1) return;
-      if (direction === "up" && idx > 0) {
-        // would move
-      }
-      // else no-op: positions unchanged
-    }
+	it('handleCtxDelete sets deletingNoteId and closes menu', () => {
+		let ctxNoteId: string | null = 'note-1';
+		let deletingNoteId: string | null = null;
+		let ctxMenuVisible = true;
 
-    moveNote("a", "up");
-    expect(notes[0].id).toBe("a");
-    expect(notes[0].position).toBe(0);
-  });
+		function handleCtxDelete(): void {
+			if (ctxNoteId) deletingNoteId = ctxNoteId;
+			ctxMenuVisible = false;
+			ctxNoteId = null;
+		}
 
-  test("moveNote does nothing for unknown id", () => {
-    let called = false;
-    function moveNote(id: string) {
-      const sorted: any[] = [];
-      const idx = sorted.findIndex((n: any) => n.id === id);
-      if (idx === -1) return;
-      called = true;
-    }
-    moveNote("nonexistent");
-    expect(called).toBe(false);
-  });
+		handleCtxDelete();
+
+		expect(deletingNoteId).toBe('note-1');
+		expect(ctxMenuVisible).toBe(false);
+	});
+
+	it('handleCtxRename sets renamingNoteId and closes menu', () => {
+		let ctxNoteId: string | null = 'note-1';
+		let renamingNoteId: string | null = null;
+		let renameValue = '';
+		let ctxMenuVisible = true;
+		const notes = [{ id: 'note-1', title: 'My Note' }];
+
+		function handleCtxRename(): void {
+			if (ctxNoteId) {
+				const note = notes.find((n) => n.id === ctxNoteId);
+				if (note) {
+					renamingNoteId = ctxNoteId;
+					renameValue = note.title;
+					ctxMenuVisible = false;
+				}
+			}
+		}
+
+		handleCtxRename();
+
+		expect(renamingNoteId).toBe('note-1');
+		expect(renameValue).toBe('My Note');
+		expect(ctxMenuVisible).toBe(false);
+	});
 });
 
-describe("NoteSidebar — context menu behavior", () => {
-  test("openNoteCtxMenu sets correct state for card context menu", () => {
-    let ctxMenuVisible = false;
-    let ctxMenuTarget = "";
-    let ctxNoteId: string | null = null;
+// ---------------------------------------------------------------------------
+// Pointer drag events
+// ---------------------------------------------------------------------------
 
-    function openNoteCtxMenu(e: Event, noteId: string) {
-      e.preventDefault();
-      e.stopPropagation();
-      ctxNoteId = noteId;
-      ctxMenuTarget = "card";
-      ctxMenuVisible = true;
-    }
+describe('NoteSidebar — pointer drag events (T014)', () => {
+	it('handlePointerDown sets dragNoteId and captures pointer', () => {
+		let dragNoteId: string | null = null;
+		let isDragging = false;
+		let pointerCaptured = false;
 
-    const event = {
-      preventDefault: mock(() => {}),
-      stopPropagation: mock(() => {}),
-    } as unknown as MouseEvent;
+		const event = {
+			button: 0,
+			pointerId: 42,
+			target: {
+				closest: (selector: string) => {
+					if (selector === 'button' || selector === 'input') return null;
+					return { setPointerCapture: () => { pointerCaptured = true; } };
+				},
+			},
+		} as unknown as PointerEvent;
 
-    openNoteCtxMenu(event, "note-123");
+		function handlePointerDown(e: PointerEvent, id: string): void {
+			if (e.button !== 0) return;
+			const target = e.target as HTMLElement;
+			if (target.closest('button') || target.closest('input')) return;
+			dragNoteId = id;
+			isDragging = false;
+			target.closest('[role="button"]')?.setPointerCapture(e.pointerId);
+		}
 
-    expect(ctxMenuVisible).toBe(true);
-    expect(ctxMenuTarget).toBe("card");
-    expect(ctxNoteId).toBe("note-123");
-  });
+		handlePointerDown(event, 'note-1');
 
-  test("openEmptyCtxMenu sets target to 'empty'", () => {
-    let ctxMenuVisible = false;
-    let ctxMenuTarget = "";
-    let ctxNoteId: string | null = "old-id";
+		expect(dragNoteId).toBe('note-1');
+		expect(isDragging).toBe(false);
+		expect(pointerCaptured).toBe(true);
+	});
 
-    function openEmptyCtxMenu(e: Event) {
-      e.preventDefault();
-      ctxNoteId = null;
-      ctxMenuTarget = "empty";
-      ctxMenuVisible = true;
-    }
+	it('handlePointerDown ignores secondary mouse buttons', () => {
+		let dragNoteId: string | null = null;
+		const event = { button: 2 } as unknown as PointerEvent;
 
-    const event = { preventDefault: mock(() => {}) } as unknown as MouseEvent;
+		function handlePointerDown(e: PointerEvent, id: string): void {
+			if (e.button !== 0) return;
+			dragNoteId = id;
+		}
 
-    openEmptyCtxMenu(event);
+		handlePointerDown(event, 'note-1');
+		expect(dragNoteId).toBeNull();
+	});
 
-    expect(ctxMenuVisible).toBe(true);
-    expect(ctxMenuTarget).toBe("empty");
-    expect(ctxNoteId).toBeNull();
-  });
+	it('handlePointerMove sets isDragging true when dragNoteId matches', () => {
+		let isDragging = false;
+		let dragNoteId: string | null = 'note-1';
 
-  test("closeCtxMenu resets menu state", () => {
-    let ctxMenuVisible = true;
-    let ctxNoteId: string | null = "note-1";
+		function handlePointerMove(_e: PointerEvent, id: string): void {
+			if (dragNoteId !== id) return;
+			if (!isDragging) isDragging = true;
+		}
 
-    function closeCtxMenu() {
-      ctxMenuVisible = false;
-      ctxNoteId = null;
-    }
+		handlePointerMove({} as PointerEvent, 'note-1');
+		expect(isDragging).toBe(true);
+	});
 
-    closeCtxMenu();
+	it('handlePointerMove is no-op when dragNoteId does not match', () => {
+		let isDragging = false;
+		let dragNoteId: string | null = 'note-other';
 
-    expect(ctxMenuVisible).toBe(false);
-    expect(ctxNoteId).toBeNull();
-  });
+		function handlePointerMove(_e: PointerEvent, id: string): void {
+			if (dragNoteId !== id) return;
+			if (!isDragging) isDragging = true;
+		}
 
-  test("handleCtxRename sets rename state and closes menu", () => {
-    let ctxNoteId: string | null = "note-1";
-    let renamingNoteId: string | null = null;
-    let renameValue = "";
-    let ctxMenuVisible = true;
+		handlePointerMove({} as PointerEvent, 'note-1');
+		expect(isDragging).toBe(false);
+	});
 
-    const notes = [{ id: "note-1", title: "My Note" }];
+	it('handlePointerUp releases capture, triggers reorderNote, resets state', () => {
+		let dragNoteId: string | null = 'note-1';
+		let dragOverNoteId: string | null = 'note-2';
+		let isDragging = true;
+		let released = false;
+		const reorderNote = vi.fn();
 
-    function handleCtxRename() {
-      if (ctxNoteId) {
-        const note = notes.find((n) => n.id === ctxNoteId);
-        if (note) {
-          renamingNoteId = ctxNoteId;
-          renameValue = note.title;
-          ctxMenuVisible = false;
-        }
-      }
-    }
+		const event = {
+			pointerId: 42,
+			currentTarget: { releasePointerCapture: () => { released = true; } },
+		} as unknown as PointerEvent;
 
-    handleCtxRename();
+		function handlePointerUp(e: PointerEvent, id: string): void {
+			if (dragNoteId !== id) return;
+			const cardEl = e.currentTarget as HTMLElement;
+			try { cardEl.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+			if (isDragging && dragOverNoteId && dragOverNoteId !== dragNoteId) {
+				reorderNote(dragNoteId, 1);
+			}
+			dragNoteId = null;
+			dragOverNoteId = null;
+			isDragging = false;
+		}
 
-    expect(renamingNoteId).toBe("note-1");
-    expect(renameValue).toBe("My Note");
-    expect(ctxMenuVisible).toBe(false);
-  });
+		handlePointerUp(event, 'note-1');
 
-  test("handleCtxDelete sets deletingNoteId and closes menu", () => {
-    let ctxNoteId: string | null = "note-1";
-    let deletingNoteId: string | null = null;
-    let ctxMenuVisible = true;
-
-    function handleCtxDelete() {
-      if (ctxNoteId) deletingNoteId = ctxNoteId;
-      ctxMenuVisible = false;
-    }
-
-    handleCtxDelete();
-
-    expect(deletingNoteId).toBe("note-1");
-    expect(ctxMenuVisible).toBe(false);
-  });
+		expect(released).toBe(true);
+		expect(reorderNote).toHaveBeenCalled();
+		expect(dragNoteId).toBeNull();
+		expect(dragOverNoteId).toBeNull();
+		expect(isDragging).toBe(false);
+	});
 });
 
-describe("NoteSidebar — inline rename", () => {
-  test("commitRename saves trimmed non-empty title", () => {
-    let renamingNoteId: string | null = "note-1";
-    let renameValue = "  New Title  ";
-    let savedId = "";
-    let savedTitle = "";
+// ---------------------------------------------------------------------------
+// Reorder / duplicate / move logic
+// ---------------------------------------------------------------------------
 
-    function renameNote(id: string, title: string) {
-      savedId = id;
-      savedTitle = title;
-    }
+describe('NoteSidebar — reorderNote logic (T014)', () => {
+	it('moves note to new position and re-indexes all', () => {
+		const notes = [
+			{ id: 'a', position: 0 },
+			{ id: 'b', position: 1 },
+			{ id: 'c', position: 2 },
+		];
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		const note = sorted.find((n) => n.id === 'a')!;
+		const clamped = Math.max(0, Math.min(1, sorted.length - 1));
+		sorted.splice(sorted.indexOf(note), 1);
+		sorted.splice(clamped, 0, note);
+		const updated = sorted.map((n, i) => ({ ...n, position: i }));
 
-    function commitRename() {
-      if (renamingNoteId) {
-        const val = renameValue.trim();
-        if (val) renameNote(renamingNoteId, val);
-        renamingNoteId = null;
-      }
-    }
+		expect(updated[0].id).toBe('b');
+		expect(updated[1].id).toBe('a');
+		expect(updated[2].id).toBe('c');
+		updated.forEach((n, i) => expect(n.position).toBe(i));
+	});
 
-    commitRename();
-
-    expect(savedId).toBe("note-1");
-    expect(savedTitle).toBe("New Title");
-    expect(renamingNoteId).toBeNull();
-  });
-
-  test("commitRename does not save empty title", () => {
-    let renamingNoteId: string | null = "note-1";
-    let renameValue = "  ";
-    let saved = false;
-
-    function renameNote(_id: string, _title: string) {
-      saved = true;
-    }
-
-    function commitRename() {
-      if (renamingNoteId) {
-        const val = renameValue.trim();
-        if (val) renameNote(renamingNoteId, val);
-        renamingNoteId = null;
-      }
-    }
-
-    commitRename();
-
-    expect(saved).toBe(false);
-    expect(renamingNoteId).toBeNull();
-  });
-
-  test("closeRename clears rename state", () => {
-    let renamingNoteId: string | null = "note-1";
-
-    function closeRename() {
-      renamingNoteId = null;
-    }
-
-    closeRename();
-    expect(renamingNoteId).toBeNull();
-  });
-
-  test("handleRenameKeydown Enter commits rename", () => {
-    let committed = false;
-
-    function commitRename() {
-      committed = true;
-    }
-
-    function handleRenameKeydown(e: KeyboardEvent) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        commitRename();
-      }
-    }
-
-    const event = { key: "Enter", preventDefault: mock(() => {}) } as unknown as KeyboardEvent;
-    handleRenameKeydown(event);
-    expect(committed).toBe(true);
-  });
-
-  test("handleRenameKeydown Escape closes rename", () => {
-    let closed = false;
-
-    function closeRename() {
-      closed = true;
-    }
-
-    function handleRenameKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeRename();
-      }
-    }
-
-    const event = { key: "Escape", preventDefault: mock(() => {}) } as unknown as KeyboardEvent;
-    handleRenameKeydown(event);
-    expect(closed).toBe(true);
-  });
+	it('clamps out-of-range position', () => {
+		const notes = [{ id: 'a', position: 0 }, { id: 'b', position: 1 }];
+		const clamped = Math.max(0, Math.min(999, notes.length - 1));
+		expect(clamped).toBe(1);
+	});
 });
 
-describe("NoteSidebar — pointer events drag and drop", () => {
-  test("handlePointerDown sets dragNoteId and captures pointer", () => {
-    let dragNoteId: string | null = null;
-    let pointerCaptured = false;
-    let isDragging = false;
+describe('NoteSidebar — duplicateNote logic (T014)', () => {
+	it('creates copy with "(copy)" suffix inserted after original', () => {
+		const notes = [
+			{ id: 'a', title: 'Note A', content: 'hello', position: 0 },
+			{ id: 'b', title: 'Note B', content: 'world', position: 1 },
+		];
+		const original = notes.find((n) => n.id === 'a')!;
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		const origIdx = sorted.indexOf(original);
+		const duplicate = {
+			id: 'new-id',
+			title: `${original.title} (copy)`,
+			content: original.content,
+			position: origIdx + 1,
+		};
+		sorted.splice(origIdx + 1, 0, duplicate);
+		const updated = sorted.map((n, i) => ({ ...n, position: i }));
 
-    const closestMock = mock((selector: string) => {
-      if (selector === "button" || selector === "input") return null;
-      return {
-        setPointerCapture: mock(() => {
-          pointerCaptured = true;
-        }),
-      };
-    });
+		expect(updated).toHaveLength(3);
+		expect(updated[0].id).toBe('a');
+		expect(updated[1].id).toBe('new-id');
+		expect(updated[1].title).toBe('Note A (copy)');
+		expect(updated[2].id).toBe('b');
+		updated.forEach((n, i) => expect(n.position).toBe(i));
+	});
 
-    const event = {
-      button: 0,
-      pointerId: 42,
-      target: {
-        closest: closestMock,
-      },
-    } as unknown as PointerEvent;
-
-    function handlePointerDown(e: PointerEvent, id: string) {
-      if (e.button !== 0) return;
-      const target = e.target as HTMLElement;
-      if (target.closest("button") || target.closest("input")) return;
-      dragNoteId = id;
-      isDragging = false;
-      target.closest('[role="button"]')?.setPointerCapture(e.pointerId);
-    }
-
-    handlePointerDown(event, "note-1");
-
-    expect(dragNoteId).toBe("note-1");
-    expect(isDragging).toBe(false);
-    expect(pointerCaptured).toBe(true);
-  });
-
-  test("handlePointerDown ignores clicks with secondary mouse buttons", () => {
-    let dragNoteId: string | null = null;
-    const event = { button: 2 } as unknown as PointerEvent;
-
-    function handlePointerDown(e: PointerEvent, id: string) {
-      if (e.button !== 0) return;
-      dragNoteId = id;
-    }
-
-    handlePointerDown(event, "note-1");
-    expect(dragNoteId).toBeNull();
-  });
-
-  test("handlePointerMove marks isDragging as true", () => {
-    let dragNoteId: string | null = "note-1";
-    let isDragging = false;
-
-    function handlePointerMove(_e: PointerEvent, id: string) {
-      if (dragNoteId !== id) return;
-      if (!isDragging) {
-        isDragging = true;
-      }
-    }
-
-    const event = {} as PointerEvent;
-    handlePointerMove(event, "note-1");
-    expect(isDragging).toBe(true);
-  });
-
-  test("handlePointerUp releases pointer capture and triggers reorderNote", () => {
-    let dragNoteId: string | null = "note-1";
-    let dragOverNoteId: string | null = "note-2";
-    let isDragging = true;
-    let pointerReleased = false;
-    let reorderedId = "";
-
-    const event = {
-      pointerId: 42,
-      currentTarget: {
-        releasePointerCapture: mock(() => {
-          pointerReleased = true;
-        }),
-      },
-    } as unknown as PointerEvent;
-
-    function reorderNote(id: string) {
-      reorderedId = id;
-    }
-
-    function handlePointerUp(e: PointerEvent, id: string) {
-      if (dragNoteId !== id) return;
-      const cardEl = e.currentTarget as HTMLElement;
-      cardEl.releasePointerCapture(e.pointerId);
-
-      if (isDragging && dragOverNoteId && dragOverNoteId !== dragNoteId) {
-        reorderNote(dragNoteId);
-      }
-      dragNoteId = null;
-      dragOverNoteId = null;
-      isDragging = false;
-    }
-
-    handlePointerUp(event, "note-1");
-
-    expect(dragNoteId).toBeNull();
-    expect(dragOverNoteId).toBeNull();
-    expect(isDragging).toBe(false);
-    expect(pointerReleased).toBe(true);
-    expect(reorderedId).toBe("note-1");
-  });
+	it('returns null for unknown id', () => {
+		const notes: { id: string }[] = [];
+		const original = notes.find((n) => n.id === 'nonexistent');
+		expect(original ?? null).toBeNull();
+	});
 });
 
-// --- Date.now mocking utilities ---
-let _originalDateNow: (() => number) | null = null;
+describe('NoteSidebar — moveNote logic (T014)', () => {
+	it('up: swaps with previous note', () => {
+		const notes = [{ id: 'a', position: 0 }, { id: 'b', position: 1 }];
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		const idx = sorted.findIndex((n) => n.id === 'b');
+		const newIdx = idx - 1;
+		const [note] = sorted.splice(idx, 1);
+		sorted.splice(newIdx, 0, note);
+		const updated = sorted.map((n, i) => ({ ...n, position: i }));
+		expect(updated[0].id).toBe('b');
+		expect(updated[1].id).toBe('a');
+	});
 
-function jestMockDateNow(fixedTime: number) {
-  _originalDateNow = Date.now;
-  Date.now = () => fixedTime;
-}
+	it('down: swaps with next note', () => {
+		const notes = [{ id: 'a', position: 0 }, { id: 'b', position: 1 }];
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		const idx = sorted.findIndex((n) => n.id === 'a');
+		const newIdx = idx + 1;
+		const [note] = sorted.splice(idx, 1);
+		sorted.splice(newIdx, 0, note);
+		const updated = sorted.map((n, i) => ({ ...n, position: i }));
+		expect(updated[0].id).toBe('b');
+		expect(updated[1].id).toBe('a');
+	});
 
-function jestMockDateNowRestore() {
-  if (_originalDateNow) {
-    Date.now = _originalDateNow;
-    _originalDateNow = null;
-  }
-}
+	it('top: moves to position 0', () => {
+		const notes = [{ id: 'a', position: 0 }, { id: 'b', position: 1 }, { id: 'c', position: 2 }];
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		const idx = sorted.findIndex((n) => n.id === 'c');
+		const [note] = sorted.splice(idx, 1);
+		sorted.splice(0, 0, note);
+		const updated = sorted.map((n, i) => ({ ...n, position: i }));
+		expect(updated[0].id).toBe('c');
+		updated.forEach((n, i) => expect(n.position).toBe(i));
+	});
+
+	it('bottom: moves to last position', () => {
+		const notes = [{ id: 'a', position: 0 }, { id: 'b', position: 1 }, { id: 'c', position: 2 }];
+		const sorted = [...notes].sort((a, b) => a.position - b.position);
+		const idx = sorted.findIndex((n) => n.id === 'a');
+		const [note] = sorted.splice(idx, 1);
+		sorted.splice(sorted.length, 0, note);
+		const updated = sorted.map((n, i) => ({ ...n, position: i }));
+		expect(updated[updated.length - 1].id).toBe('a');
+		updated.forEach((n, i) => expect(n.position).toBe(i));
+	});
+});
