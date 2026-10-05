@@ -1,6 +1,10 @@
 {
   "svelte.enable-ts-plugin": true,
   "chat.tools.terminal.autoApprove": {
-    "Test-Path": true
+    "Test-Path": true,
+    "/^powershell -File \"c:\\\\Users\\\\rubikii\\\\Documents\\\\Github\\\\project-inki\\\\inki-app\\\\\\.specify\\\\scripts\\\\powershell\\\\check-prerequisites\\.ps1\" -Json -PathsOnly$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
   }
 }

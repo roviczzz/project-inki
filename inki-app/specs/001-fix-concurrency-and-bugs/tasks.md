@@ -1,7 +1,8 @@
+ote 
+
 ---
 description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 ---
-
 # Tasks: Fix Concurrency Issues, Incomplete Tests, and Bugs
 
 **Input**: Design documents from `specs/001-fix-concurrency-and-bugs/` (`spec.md`, `plan.md`, `research.md`, `data-model.md`, `quickstart.md`, `contracts/`)
@@ -52,6 +53,7 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 **Independent Test**: Create Note A and Note B, type rapidly into Note A, switch to Note B immediately without pause, verify Note A's content was saved to persistent storage, and confirm Note B displays its own content with zero content bleed.
 
 ### Tests for User Story 1 ⚠️
+
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
 - [X] T008 [P] [US1] Write store concurrency tests in `inki-app/src/lib/stores/__tests__/notes-concurrency.test.ts` validating 300ms debounced saving, `flushSave()` on `selectNote()`, simulated multi-window `StorageEvent` synchronization without draft corruption, and zero content loss across 50 rapid consecutive note switches
@@ -74,6 +76,7 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 **Independent Test**: Create a sequence of 5 notes, delete the note at index 2 (Note 3) and verify remaining positions are strictly `0, 1, 2, 3` and selection shifts to Note 4; delete the last note and verify selection shifts to the previous note; delete the last remaining note and verify selection shifts to `null`.
 
 ### Tests for User Story 2 ⚠️
+
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
 - [X] T013 [P] [US2] Write store ordering and deletion tests in `inki-app/src/lib/stores/__tests__/notes-ordering.test.ts` validating contiguous positions (`0` to `N - 1`) for `addNote`, `deleteNote`, `reorderNote`, `duplicateNote`, `moveNote`, and adjacent selection transitions on delete
@@ -96,6 +99,7 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 **Independent Test**: Open context menu, start inline rename, and initiate pointer drag; press Escape or click outside for each interaction and confirm that the UI immediately and cleanly returns to neutral state without side effects.
 
 ### Tests for User Story 3 ⚠️
+
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
 - [X] T018 [P] [US3] Write sidebar interaction tests in `inki-app/src/lib/components/__tests__/NoteSidebar-interactions.test.ts` validating Escape key cancellation, outside click dismissal, inline rename trimming/restoration, and pointer cancel drag resets
@@ -117,6 +121,7 @@ description: "Task list for Fix Concurrency Issues, Incomplete Tests, and Bugs"
 **Independent Test**: Run `npm run check` and `npm test` from `inki-app/` and verify 0 errors, 0 warnings, and 100% passing tests across all test suites without any diagnostic errors.
 
 ### Tests for User Story 4 ⚠️
+
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
 - [X] T022 [P] [US4] Write layout and page routing integration tests in `inki-app/src/routes/__tests__/layout.test.ts` and `inki-app/src/routes/__tests__/page.test.ts` validating dark mode detection, responsive sidebar toggling, and global keyboard shortcut handlers using Vitest
