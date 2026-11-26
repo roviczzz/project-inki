@@ -1,8 +1,12 @@
 name: 'publish'
+
 on:
   push:
     branches:
       - release
+
+permissions:
+  contents: write
 
 jobs:
   publish-tauri:
@@ -13,38 +17,58 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v2
-      - name: setup node
-        uses: actions/setup-node@v1
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 12
-      - name: install Rust stable
-        uses: actions-rs/toolchain@v1
+          node-version: 22
+          cache: npm
+          cache-dependency-path: inki-app/package-lock.json
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          toolchain: stable
-      - name: install webkit2gtk (ubuntu only)
+          workspaces: "inki-app/src-tauri -> target"
+
+      - name: Install Linux system dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y webkit2gtk-4.0
-      - name: import windows certificate
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Import Windows certificate
         if: matrix.platform == 'windows-latest'
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          New-Item -ItemType directory -Path certificate
+          if ([string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE)) {
+            Write-Host "WINDOWS_CERTIFICATE secret not set; skipping certificate import."
+            exit 0
+          }
+          New-Item -ItemType directory -Path certificate -Force
           Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
           certutil -decode certificate/tempCert.txt certificate/certificate.pfx
-          Remove-Item -path certificate -include tempCert.txt
+          Remove-Item -Path certificate/tempCert.txt
           Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
-      - name: install app dependencies and build it
-        run: yarn && yarn build
+
+      - name: Install frontend dependencies and run checks
+        working-directory: inki-app
+        run: |
+          npm ci
+          npm run check
+          npm test
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
+          projectPath: inki-app
+          tagName: app-v__VERSION__
           releaseName: 'App v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
