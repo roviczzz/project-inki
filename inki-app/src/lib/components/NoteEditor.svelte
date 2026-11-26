@@ -14,8 +14,24 @@
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import ZoomIn from '@lucide/svelte/icons/zoom-in';
   import ZoomOut from '@lucide/svelte/icons/zoom-out';
+  import Tag from '@lucide/svelte/icons/tag';
+  import Check from '@lucide/svelte/icons/check';
   import { Separator } from '$lib/components/ui/separator/index.js';
-  import { getSelectedNote, updateNote, addNote, selectNote, flushSave, type Note } from '$lib/stores/notes.svelte.ts';
+  import {
+    LabelBadge,
+    labels as allLabels,
+    resolveLabels,
+    type LabelId
+  } from '$lib/components/ui/label-badges/index.ts';
+  import {
+    getSelectedNote,
+    updateNote,
+    toggleNoteLabel,
+    addNote,
+    selectNote,
+    flushSave,
+    type Note
+  } from '$lib/stores/notes.svelte.ts';
   import { getZoomLevel, zoomIn, zoomOut, resetZoom } from '$lib/stores/zoom.svelte.ts';
   import {
     formatHtmlExport,
@@ -34,6 +50,9 @@
   let menuY = $state(0);
   let showMenu = $state(false);
   let showMoreMenu = $state(false);
+  let showTagMenu = $state(false);
+  let activeNote = $derived(getSelectedNote());
+  let activeNoteLabels = $derived(resolveLabels(activeNote?.labels));
   let zoomLevel = $derived(getZoomLevel());
   let scrollContainerRef = $state<HTMLDivElement | null>(null);
   let scrollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -70,6 +89,7 @@
   function closeAllMenus() {
     showMenu = false;
     showMoreMenu = false;
+    showTagMenu = false;
   }
 
   function syncContent() {
@@ -90,27 +110,28 @@
     syncContent();
   }
 
-  $effect(() => {
-    closeAllMenus();
-    const note = getSelectedNote();
-    if (note) {
-      if (note.id !== currentEditingId) {
-        editingTitle = note.title;
-        editingContent = note.content;
-        currentEditingId = note.id;
+    $effect(() => {
+      const note = getSelectedNote();
+      if (note) {
+        if (note.id !== currentEditingId) {
+          closeAllMenus();
+          editingTitle = note.title;
+          editingContent = note.content;
+          currentEditingId = note.id;
+          if (editorRef) {
+            editorRef.innerHTML = note.content;
+          }
+        }
+      } else {
+        closeAllMenus();
+        editingTitle = '';
+        editingContent = '';
+        currentEditingId = null;
         if (editorRef) {
-          editorRef.innerHTML = note.content;
+          editorRef.innerHTML = '';
         }
       }
-    } else {
-      editingTitle = '';
-      editingContent = '';
-      currentEditingId = null;
-      if (editorRef) {
-        editorRef.innerHTML = '';
-      }
-    }
-  });
+    });
 
   function handleTitleInput(e: Event): void {
     const newTitle = (e.target as HTMLInputElement).value;
@@ -249,23 +270,79 @@
   }
 </script>
 
-{#if getSelectedNote()}
+{#if activeNote}
   <div class="flex h-full w-full flex-col p-6">
-    <div class="flex items-center justify-between border-b border-border/40 pb-4 mb-4">
-      <div class="flex-1">
-        <Input
-          value={editingTitle}
-          oninput={handleTitleInput}
-          onblur={handleEditorBlur}
-          placeholder="Note title"
-          class="text-3xl md:text-4xl font-bold tracking-tight h-auto py-1 border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent editor-input"
-        />
+    <div class="flex flex-col gap-2.5 border-b border-border/40 pb-4 mb-4">
+      <div class="flex items-center justify-between">
+        <div class="flex-1">
+          <Input
+            value={editingTitle}
+            oninput={handleTitleInput}
+            onblur={handleEditorBlur}
+            placeholder="Note title"
+            class="text-3xl md:text-4xl font-bold tracking-tight h-auto py-1 border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent editor-input"
+          />
+        </div>
+        <div class="flex items-center gap-2 pl-4">
+          <Button variant="outline" size="sm" onclick={() => handleSave()} class="flex items-center gap-2">
+            <Save class="size-4" />
+            <FancyText config={{ mode: 'letter-swap', text: 'Save' }} />
+          </Button>
+        </div>
       </div>
-      <div class="flex items-center gap-2 pl-4">
-        <Button variant="outline" size="sm" onclick={() => handleSave()} class="flex items-center gap-2">
-          <Save class="size-4" />
-          <FancyText config={{ mode: 'letter-swap', text: 'Save' }} />
-        </Button>
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="relative">
+          <Button
+            variant="ghost"
+            size="xs"
+            aria-label="Manage tags"
+            aria-expanded={showTagMenu}
+            class="text-muted-foreground hover:text-foreground"
+            onclick={(e) => {
+              e.stopPropagation();
+              showMoreMenu = false;
+              showMenu = false;
+              showTagMenu = !showTagMenu;
+            }}
+          >
+            <Tag class="size-3.5" />
+            <span>Tags</span>
+          </Button>
+          {#if showTagMenu}
+            <div
+              role="menu"
+              tabindex="0"
+              class="absolute left-0 top-full z-50 mt-1 min-w-[200px] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => e.key === 'Escape' && (showTagMenu = false)}
+            >
+              {#each allLabels as lbl (lbl.id)}
+                {@const isTagged = Boolean(activeNote.labels?.includes(lbl.id as LabelId))}
+                <button
+                  role="menuitemcheckbox"
+                  aria-checked={isTagged}
+                  class="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-xs outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                  onclick={() => toggleNoteLabel(activeNote.id, lbl.id as LabelId)}
+                >
+                  <span class="flex items-center gap-2 truncate">
+                    <span
+                      class="size-2 shrink-0 rounded-full"
+                      style="background-color: {lbl.color};"
+                      aria-hidden="true"
+                    ></span>
+                    <span class="truncate">{lbl.name}</span>
+                  </span>
+                  {#if isTagged}
+                    <Check class="size-3.5 shrink-0 text-primary" />
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        {#if activeNoteLabels.length > 0}
+          <LabelBadge labels={activeNoteLabels} />
+        {/if}
       </div>
     </div>
     <div role="toolbar" aria-label="Text formatting" class="flex items-center gap-1 pb-3 border-b border-border/40 mb-4">

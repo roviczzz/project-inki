@@ -35,6 +35,50 @@ function timeAgo(timestamp: number): string {
 	return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function getNotePreview(content: string, maxLength = 80): string {
+	if (!content) return '';
+	return content
+		.replace(/<br\s*\/?>|<\/?(?:div|p|h[1-6]|li|ul|ol|blockquote|pre|tr|td|th|hr)[^>]*>/gi, ' ')
+		.replace(/<[^>]*>/g, '')
+		.replace(/&nbsp;/gi, ' ')
+		.replace(/&lt;/gi, '<')
+		.replace(/&gt;/gi, '>')
+		.replace(/&quot;/gi, '"')
+		.replace(/&#39;/gi, "'")
+		.replace(/&amp;/gi, '&')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.slice(0, maxLength);
+}
+
+describe('NoteSidebar — getNotePreview function', () => {
+	it('separates adjacent block elements and line breaks with spaces', () => {
+		const html =
+			'<b>Hello</b><div><b><br></b></div><h1><b>Hi</b></h1><div><br></div><div><code>aaaaaa</code></div>';
+		expect(getNotePreview(html)).toBe('Hello Hi aaaaaa');
+	});
+
+	it('separates paragraph, list, and br lines without splitting inline tags mid-word', () => {
+		const html = '<p>First<br>Second</p><ul><li>Third</li><li>Fourth</li></ul><p>un<b>bro</b>ken</p>';
+		expect(getNotePreview(html)).toBe('First Second Third Fourth unbroken');
+	});
+
+	it('decodes HTML entities and collapses repeated whitespace', () => {
+		const html = '<div>Alpha&nbsp;&nbsp;Beta &amp; &lt;Gamma&gt;</div>';
+		expect(getNotePreview(html)).toBe('Alpha Beta & <Gamma>');
+	});
+
+	it('returns empty string for empty or tag-only content', () => {
+		expect(getNotePreview('')).toBe('');
+		expect(getNotePreview('<div><br></div>')).toBe('');
+	});
+
+	it('truncates preview to maxLength', () => {
+		const longHtml = `<p>${'word '.repeat(30)}</p>`;
+		expect(getNotePreview(longHtml).length).toBeLessThanOrEqual(80);
+	});
+});
+
 // ---------------------------------------------------------------------------
 // timeAgo tests
 // ---------------------------------------------------------------------------

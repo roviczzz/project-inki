@@ -10,6 +10,11 @@
   import Moon from '@lucide/svelte/icons/moon';
   import Sun from '@lucide/svelte/icons/sun';
   import FileText from '@lucide/svelte/icons/file-text';
+  import {
+    LabelBadge,
+    resolveLabels,
+    type LabelInterface
+  } from '$lib/components/ui/label-badges/index.ts';
   import { addNote, deleteNote, getNotes, selectNote, getSelectedNote, flushSave } from '$lib/stores/notes.svelte.ts';
   import {
     formatHtmlExport,
@@ -25,6 +30,7 @@
     label: string;
     shortcut?: string;
     keywords: string[];
+    labels?: LabelInterface[];
     icon: any;
     action: () => void;
     type: 'command' | 'note';
@@ -194,14 +200,18 @@
       }
     ];
 
-    const notes: PaletteItem[] = getNotes().map((n) => ({
-      id: `note-${n.id}`,
-      label: n.title,
-      keywords: [n.title, n.content || ''],
-      icon: FileText,
-      type: 'note' as const,
-      action: () => selectNote(n.id)
-    }));
+    const notes: PaletteItem[] = getNotes().map((n) => {
+      const noteLabels = resolveLabels(n.labels);
+      return {
+        id: `note-${n.id}`,
+        label: n.title,
+        keywords: [n.title, n.content || '', ...noteLabels.map((l) => l.name)],
+        labels: noteLabels,
+        icon: FileText,
+        type: 'note' as const,
+        action: () => selectNote(n.id)
+      };
+    });
 
     return [...cmds, ...notes];
   });
@@ -281,6 +291,9 @@
             >
               <item.icon class="size-4 shrink-0 text-muted-foreground" />
               <span class="flex-1 text-left truncate">{item.label}</span>
+              {#if item.labels && item.labels.length > 0}
+                <LabelBadge labels={item.labels} class="shrink-0" />
+              {/if}
               {#if item.shortcut}
                 <kbd class="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground">
                   {item.shortcut}

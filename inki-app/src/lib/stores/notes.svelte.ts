@@ -1,3 +1,5 @@
+import { isLabelId, type LabelId } from '$lib/components/ui/label-badges/index.ts';
+
 // T004: Note entity and collection state types with enforced field constraints
 export interface Note {
 	/** Unique UUID v4 identifier. Generated fresh if missing/invalid on load. */
@@ -12,6 +14,7 @@ export interface Note {
 	updatedAt: number;
 	/** Zero-indexed contiguous integer position (0 <= position < totalNotes). Normalized on every mutation. */
 	position: number;
+	labels?: LabelId[];
 }
 
 export type MoveDirection = 'up' | 'down' | 'top' | 'bottom';
@@ -102,7 +105,10 @@ function sanitizeNote(raw: unknown, fallbackPosition: number): Note | null {
 			? r.position
 			: fallbackPosition;
 
-	return { id, title, content, createdAt, updatedAt, position };
+	const rawLabels = Array.isArray(r.labels) ? r.labels.filter(isLabelId) : [];
+	const labels = Array.from(new Set(rawLabels));
+
+	return { id, title, content, createdAt, updatedAt, position, labels };
 }
 
 function loadFromLocalStorage(): void {
@@ -210,7 +216,7 @@ function getNotes(): Note[] {
 	return [...notes].sort((a, b) => a.position - b.position);
 }
 
-function addNote(title?: string, content?: string): Note {
+function addNote(title?: string, content?: string, noteLabels?: LabelId[]): Note {
 	// Flush any pending draft before creating a new note (T005)
 	flushSave();
 	const note: Note = {
@@ -219,7 +225,8 @@ function addNote(title?: string, content?: string): Note {
 		content: content || '',
 		createdAt: Date.now(),
 		updatedAt: Date.now(),
-		position: notes.length
+		position: notes.length,
+		labels: noteLabels ? Array.from(new Set(noteLabels.filter(isLabelId))) : []
 	};
 	notes = [...notes, note];
 	selectedNoteId = note.id;
@@ -227,14 +234,31 @@ function addNote(title?: string, content?: string): Note {
 	return note;
 }
 
-function updateNote(id: string, updates: Partial<Pick<Note, 'title' | 'content'>>): void {
+function updateNote(id: string, updates: Partial<Pick<Note, 'title' | 'content' | 'labels'>>): void {
 	// Immediate in-memory update for 60 FPS UI (T005)
 	notes = notes.map((n) => {
 		if (n.id !== id) return n;
-		return { ...n, ...updates, updatedAt: Date.now() };
+		const nextLabels =
+			updates.labels !== undefined
+				? Array.from(new Set(updates.labels.filter(isLabelId)))
+				: n.labels;
+		return { ...n, ...updates, labels: nextLabels, updatedAt: Date.now() };
 	});
 	// Debounced persistence — do NOT flush synchronously on every keystroke
 	scheduleSave();
+}
+
+function toggleNoteLabel(id: string, labelId: LabelId): void {
+	if (!isLabelId(labelId)) return;
+	notes = notes.map((n) => {
+		if (n.id !== id) return n;
+		const current = n.labels ?? [];
+		const next = current.includes(labelId)
+			? current.filter((l) => l !== labelId)
+			: [...current, labelId];
+		return { ...n, labels: next, updatedAt: Date.now() };
+	});
+	flushSave();
 }
 
 function selectNote(id: string | null): void {
@@ -302,7 +326,8 @@ function duplicateNote(id: string): Note | null {
 		content: original.content,
 		createdAt: Date.now(),
 		updatedAt: Date.now(),
-		position: origIdx + 1
+		position: origIdx + 1,
+		labels: [...(original.labels ?? [])]
 	};
 
 	sorted.splice(origIdx + 1, 0, duplicate);
@@ -335,6 +360,7 @@ export {
 	addNote,
 	deleteNote,
 	updateNote,
+	toggleNoteLabel,
 	selectNote,
 	getNotes,
 	loadFromLocalStorage,

@@ -8,8 +8,14 @@
   } from '$lib/components/ui/dialog/index.js';
   import { FancyText } from '$lib/components/ui/fancy-text/index.js';
   import {
+    LabelBadge,
+    labels as allLabels,
+    resolveLabels,
+    type LabelId
+  } from '$lib/components/ui/label-badges/index.ts';
+  import {
     addNote, deleteNote, getNotes, selectNote, getSelectedNote,
-    reorderNote, duplicateNote, renameNote, moveNote
+    reorderNote, duplicateNote, renameNote, moveNote, toggleNoteLabel
   } from '$lib/stores/notes.svelte.ts';
   import { cn } from '$lib/utils.js';
   import { fade } from 'svelte/transition';
@@ -23,6 +29,7 @@
   import ArrowDown from '@lucide/svelte/icons/arrow-down';
   import ArrowUpToLine from '@lucide/svelte/icons/arrow-up-to-line';
   import ArrowDownToLine from '@lucide/svelte/icons/arrow-down-to-line';
+  import Check from '@lucide/svelte/icons/check';
 
   let { onNoteSelect }: { onNoteSelect?: () => void } = $props();
 
@@ -48,6 +55,29 @@
   let ghostX = $state(0);
   let ghostY = $state(0);
   let ghostNote = $derived(dragNoteId ? notesList.find((n) => n.id === dragNoteId) ?? null : null);
+  let ctxNote = $derived(ctxNoteId ? notesList.find((n) => n.id === ctxNoteId) ?? null : null);
+
+  function getNotePreview(content: string, maxLength = 80): string {
+    if (!content) return '';
+    return content
+      .replace(/<br\s*\/?>|<\/?(?:div|p|h[1-6]|li|ul|ol|blockquote|pre|tr|td|th|hr)[^>]*>/gi, ' ')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&amp;/gi, '&')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, maxLength);
+  }
+
+  function handleCtxToggleLabel(labelId: LabelId): void {
+    if (ctxNoteId) {
+      toggleNoteLabel(ctxNoteId, labelId);
+    }
+  }
 
   function timeAgo(timestamp: number): string {
     const now = Date.now();
@@ -137,12 +167,12 @@
   }
 
   function positionMenu(e: MouseEvent): void {
-    const menuWidth = 200;
-    const menuHeight = 300;
+    const menuWidth = 220;
+    const menuHeight = 460;
     let x = e.clientX;
     let y = e.clientY;
-    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10;
-    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
+    if (x + menuWidth > window.innerWidth) x = Math.max(10, window.innerWidth - menuWidth - 10);
+    if (y + menuHeight > window.innerHeight) y = Math.max(10, window.innerHeight - menuHeight - 10);
     ctxMenuX = x;
     ctxMenuY = y;
   }
@@ -298,7 +328,7 @@
     <img src="/favicon.png" alt="Inki logo" class="size-5 shrink-0 dark:invert" />
     <span class="text-sm font-semibold tracking-tight">Inki</span>
   </div>
-  <div class="p-3 flex gap-2">
+  <div class="px-3 pt-3 pb-2 flex gap-2">
     <Button variant="outline" class="flex-1" onclick={handleNewNote}>
       <Plus class="size-4 mr-1" />
       <FancyText config={{ mode: 'letter-swap', text: 'New Note' }} />
@@ -317,12 +347,14 @@
 
   {#if notesList.length > 0}
     <ScrollArea class="flex-1 min-h-0">
-      <div class="flex flex-col gap-1 px-3 pb-3">
+      <div class="flex flex-col gap-2 px-3 pt-1 pb-3">
         {#each notesList as note (note.id)}
           {@const isSelected = selectedNote?.id === note.id}
+          {@const preview = getNotePreview(note.content)}
+          {@const resolvedNoteLabels = resolveLabels(note.labels)}
           <Card
             class={cn(
-              'relative cursor-pointer transition-all duration-150 w-full note-card touch-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              'relative cursor-pointer transition-all duration-150 w-full note-card touch-none py-3 gap-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
               isSelected && 'bg-accent/80 ring-1 ring-primary/30 shadow-sm',
               dragOverNoteId === note.id && 'ring-2 ring-primary bg-accent/50'
             )}
@@ -343,39 +375,46 @@
               }
             }}
           >
-            <CardContent>
-              <div class="absolute top-2 right-2 flex items-center gap-1">
-                <div class="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground transition-colors">
-                  <GripVertical class="size-4" />
+            <CardContent class="flex flex-col gap-2 px-3.5">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  {#if renamingNoteId === note.id}
+                    <input
+                      bind:this={renameInput}
+                      type="text"
+                      bind:value={renameValue}
+                      onblur={commitRename}
+                      onkeydown={handleRenameKeydown}
+                      onclick={(e) => e.stopPropagation()}
+                      oncontextmenu={(e) => { e.stopPropagation(); openNoteCtxMenu(e, note.id); }}
+                      class="w-full text-sm font-medium bg-transparent border-b border-primary outline-none px-0 py-0 mb-0"
+                    />
+                  {:else}
+                    <p class="truncate text-sm font-medium leading-snug text-card-foreground">{note.title}</p>
+                  {/if}
                 </div>
-                <button
-                  onclick={(e) => handleDeleteClick(e, note.id)}
-                  onkeydown={(e) => e.stopPropagation()}
-                  tabindex={-1}
-                  class="cursor-pointer rounded-sm text-muted-foreground hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring transition-colors"
-                  aria-label="Delete note"
-                >
-                  <Trash2 class="size-4" />
-                </button>
+                <div class="flex items-center gap-1 shrink-0 -mr-1 -mt-0.5">
+                  <div class="cursor-grab active:cursor-grabbing rounded-sm p-0.5 text-muted-foreground hover:text-foreground transition-colors">
+                    <GripVertical class="size-4" />
+                  </div>
+                  <button
+                    onclick={(e) => handleDeleteClick(e, note.id)}
+                    onkeydown={(e) => e.stopPropagation()}
+                    tabindex={-1}
+                    class="cursor-pointer rounded-sm p-0.5 text-muted-foreground hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+                    aria-label="Delete note"
+                  >
+                    <Trash2 class="size-4" />
+                  </button>
+                </div>
               </div>
-              {#if renamingNoteId === note.id}
-                <input
-                  bind:this={renameInput}
-                  type="text"
-                  bind:value={renameValue}
-                  onblur={commitRename}
-                  onkeydown={handleRenameKeydown}
-                  onclick={(e) => e.stopPropagation()}
-                  oncontextmenu={(e) => { e.stopPropagation(); openNoteCtxMenu(e, note.id); }}
-                  class="w-full text-sm font-medium bg-transparent border-b border-primary outline-none px-0 py-0 mb-0"
-                />
-              {:else}
-                <p class="truncate text-sm font-medium">{note.title}</p>
+              {#if preview}
+                <p class="truncate text-xs text-muted-foreground">{preview}</p>
               {/if}
-              <p class="truncate text-xs text-muted-foreground">
-                {note.content ? note.content.replace(/<[^>]*>/g, '').slice(0, 80) : ''}
-              </p>
-              <p class="mt-1 text-xs font-mono tabular-nums text-muted-foreground">{timeAgo(note.updatedAt)}</p>
+              {#if resolvedNoteLabels.length > 0}
+                <LabelBadge labels={resolvedNoteLabels} />
+              {/if}
+              <p class="text-[11px] font-mono tabular-nums text-muted-foreground/80">{timeAgo(note.updatedAt)}</p>
             </CardContent>
           </Card>
         {/each}
@@ -409,8 +448,10 @@
 
 {#if ctxMenuVisible}
   <div
-    class="fixed z-50 min-w-[180px] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+    class="fixed z-50 min-w-[200px] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
     style="left: {ctxMenuX}px; top: {ctxMenuY}px;"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.key === 'Escape' && closeCtxMenu()}
     oncontextmenu={(e) => e.preventDefault()}
     role="menu"
     tabindex="-1"
@@ -432,6 +473,33 @@
         <Copy class="size-4" />
         <span>Duplicate</span>
       </button>
+      <div class="my-1 h-px bg-border"></div>
+      <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Tags
+      </div>
+      <div class="max-h-44 overflow-y-auto">
+        {#each allLabels as lbl (lbl.id)}
+          {@const isTagged = Boolean(ctxNote?.labels?.includes(lbl.id as LabelId))}
+          <button
+            role="menuitemcheckbox"
+            aria-checked={isTagged}
+            class="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1 text-xs outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
+            onclick={() => handleCtxToggleLabel(lbl.id as LabelId)}
+          >
+            <span class="flex items-center gap-2 truncate">
+              <span
+                class="size-2 shrink-0 rounded-full"
+                style="background-color: {lbl.color};"
+                aria-hidden="true"
+              ></span>
+              <span class="truncate">{lbl.name}</span>
+            </span>
+            {#if isTagged}
+              <Check class="size-3.5 shrink-0 text-primary" />
+            {/if}
+          </button>
+        {/each}
+      </div>
       <div class="my-1 h-px bg-border"></div>
       <button
         role="menuitem"
@@ -496,14 +564,21 @@
 {/if}
 
 {#if isDragging && dragNoteId && ghostNote}
+  {@const ghostPreview = getNotePreview(ghostNote.content, 60)}
+  {@const ghostLabels = resolveLabels(ghostNote.labels)}
   <div
     transition:fade={{ duration: 150 }}
-    class="fixed z-[100] pointer-events-none w-[260px] rounded-xl border border-border bg-card p-4 shadow-xl rotate-2 opacity-90"
+    class="fixed z-[100] pointer-events-none w-[260px] rounded-xl border border-border bg-card p-3.5 shadow-xl rotate-2 opacity-90"
     style="left: {ghostX + 16}px; top: {ghostY - 48}px;"
   >
     <p class="truncate text-sm font-medium">{ghostNote.title}</p>
-    <p class="truncate text-xs text-muted-foreground mt-1">
-      {ghostNote.content ? ghostNote.content.replace(/<[^>]*>/g, '').slice(0, 60) : ''}
-    </p>
+    {#if ghostPreview}
+      <p class="truncate text-xs text-muted-foreground mt-1">
+        {ghostPreview}
+      </p>
+    {/if}
+    {#if ghostLabels.length > 0}
+      <LabelBadge labels={ghostLabels} class="mt-2" />
+    {/if}
   </div>
 {/if}
