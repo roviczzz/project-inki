@@ -38,8 +38,7 @@
         return;
       }
     } catch {}
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    document.documentElement.classList.toggle('dark', mq.matches);
+    document.documentElement.classList.add('dark');
   });
 </script>
 
