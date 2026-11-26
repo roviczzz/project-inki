@@ -39,40 +39,42 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: #0a0a0a;
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: #121212;
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.269 0 0);
+  --popover: #161616;
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary-foreground: #0a0a0a;
+  --secondary: #1a1a1a;
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.371 0 0);
+  --muted: #181818;
+  --muted-foreground: oklch(0.68 0 0);
+  --accent: #222222;
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: #0e0e0e;
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: #1a1a1a;
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.439 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @theme inline {
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -116,8 +118,20 @@
   }
 
   body {
-    @apply bg-background text-foreground;
-    font-family: 'JetBrains Mono', monospace;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  code, kbd, samp, pre {
+    font-family: var(--font-mono);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="option"]:not([aria-disabled="true"]),
+  a[href] {
+    cursor: pointer;
   }
 }
 
@@ -144,4 +158,94 @@
 }
 .slide-thin.scrolling::-webkit-scrollbar-thumb:hover {
   background-color: var(--muted-foreground);
+}
+
+.fancy-letter-swap {
+  overflow: hidden;
+  line-height: 1.25;
+}
+
+.fancy-letter-swap .fancy-char {
+  position: relative;
+  display: inline-block;
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--char-index, 0) * var(--stagger-ms, 22ms));
+}
+
+.fancy-letter-swap .fancy-char::after {
+  content: attr(data-char);
+  position: absolute;
+  left: 0;
+  top: 100%;
+}
+
+.fancy-letter-swap[data-direction="down"] .fancy-char::after {
+  top: -100%;
+}
+
+:is(
+  .group\/button:hover,
+  .group\/button:focus-visible,
+  button:hover,
+  button:focus-visible,
+  [role="option"]:hover,
+  [role="menuitem"]:hover,
+  .fancy-letter-swap:hover
+) .fancy-letter-swap .fancy-char {
+  transform: translateY(-100%);
+}
+
+:is(
+  .group\/button:hover,
+  .group\/button:focus-visible,
+  button:hover,
+  button:focus-visible,
+  [role="option"]:hover,
+  [role="menuitem"]:hover,
+  .fancy-letter-swap:hover
+) .fancy-letter-swap[data-direction="down"] .fancy-char {
+  transform: translateY(100%);
+}
+
+@keyframes fancy-breathe {
+  0%, 100% {
+    opacity: 0.55;
+    transform: translateY(0) scale(0.98);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.02);
+  }
+}
+
+.fancy-breathing .fancy-char {
+  display: inline-block;
+  animation: fancy-breathe var(--breathe-duration, 2400ms) ease-in-out infinite;
+  animation-delay: calc(var(--char-index, 0) * var(--stagger-ms, 60ms));
+}
+
+@keyframes fancy-word-enter {
+  from {
+    opacity: 0;
+    transform: translateY(45%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fancy-rotate-word {
+  display: inline-block;
+  animation: fancy-word-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fancy-letter-swap .fancy-char,
+  .fancy-breathing .fancy-char,
+  .fancy-rotate-word {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
 }

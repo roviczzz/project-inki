@@ -246,19 +246,27 @@
         bind:this={inputRef}
         bind:value={search}
         onkeydown={handleKeyDown}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls="command-palette-list"
+        aria-activedescendant={filteredItems[filteredSelectedIndex] ? `cmd-item-${filteredItems[filteredSelectedIndex].id}` : undefined}
+        aria-label="Search commands and notes"
         placeholder="Search commands and notes..."
         class="flex h-full w-full bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
       />
-      <kbd class="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <kbd class="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground">
         Esc
       </kbd>
     </div>
 
     {#if filteredItems.length > 0}
       <ScrollArea class="max-h-[360px]">
-        <div class="p-1">
+        <div id="command-palette-list" role="listbox" class="p-1">
           {#each filteredItems as item, i (item.id)}
             <button
+              id="cmd-item-{item.id}"
+              role="option"
+              aria-selected={i === filteredSelectedIndex}
               class={cn(
                 'flex w-full items-center gap-3 rounded-sm px-3 py-2.5 text-sm outline-none cursor-pointer transition-colors',
                 i === filteredSelectedIndex
@@ -274,7 +282,7 @@
               <item.icon class="size-4 shrink-0 text-muted-foreground" />
               <span class="flex-1 text-left truncate">{item.label}</span>
               {#if item.shortcut}
-                <kbd class="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <kbd class="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground">
                   {item.shortcut}
                 </kbd>
               {/if}

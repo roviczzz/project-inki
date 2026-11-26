@@ -1,23 +1,21 @@
 <script lang="ts">
   import { Input } from '$lib/components/ui/input/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { FancyText, AnimatedNumber } from '$lib/components/ui/fancy-text/index.js';
+  import {
+    INLINE_TOOLBAR_GROUPS,
+    OVERFLOW_TOOLBAR_ACTIONS,
+    CONTEXT_MENU_GROUPS,
+    runFormatCommand,
+    type FormatCommandId
+  } from '$lib/components/editor-actions.ts';
   import Plus from '@lucide/svelte/icons/plus';
   import Save from '@lucide/svelte/icons/save';
-  import Bold from '@lucide/svelte/icons/bold';
-  import Italic from '@lucide/svelte/icons/italic';
-  import Code from '@lucide/svelte/icons/code';
-  import Heading1 from '@lucide/svelte/icons/heading-1';
-  import Heading2 from '@lucide/svelte/icons/heading-2';
-  import Heading3 from '@lucide/svelte/icons/heading-3';
-  import Quote from '@lucide/svelte/icons/quote';
-  import List from '@lucide/svelte/icons/list';
-  import ListOrdered from '@lucide/svelte/icons/list-ordered';
-  import Strikethrough from '@lucide/svelte/icons/strikethrough';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import ZoomIn from '@lucide/svelte/icons/zoom-in';
   import ZoomOut from '@lucide/svelte/icons/zoom-out';
   import { Separator } from '$lib/components/ui/separator/index.js';
-  import { getSelectedNote, updateNote, addNote, selectNote, getNotes, flushSave, type Note } from '$lib/stores/notes.svelte.ts';
+  import { getSelectedNote, updateNote, addNote, selectNote, flushSave, type Note } from '$lib/stores/notes.svelte.ts';
   import { getZoomLevel, zoomIn, zoomOut, resetZoom } from '$lib/stores/zoom.svelte.ts';
   import {
     formatHtmlExport,
@@ -82,58 +80,13 @@
     }
   }
 
-  function applyFormat(formatType: string) {
+  function applyFormat(formatType: FormatCommandId) {
     closeAllMenus();
     if (!editorRef) return;
-    // Flush pending save before format execution so state is consistent
     flushSave();
     editorRef.focus();
 
-    switch (formatType) {
-      case 'bold':
-        document.execCommand('bold');
-        break;
-      case 'italic':
-        document.execCommand('italic');
-        break;
-      case 'strikethrough':
-        document.execCommand('strikeThrough');
-        break;
-      case 'codeblock': {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount) {
-          const text = sel.getRangeAt(0).toString();
-          if (text) {
-            const html = text.includes('\n')
-              ? `<pre><code>${text}</code></pre>`
-              : `<code>${text}</code>`;
-            document.execCommand('insertHTML', false, html);
-          }
-        }
-        break;
-      }
-      case 'h1':
-        document.execCommand('formatBlock', false, '<h1>');
-        break;
-      case 'h2':
-        document.execCommand('formatBlock', false, '<h2>');
-        break;
-      case 'h3':
-        document.execCommand('formatBlock', false, '<h3>');
-        break;
-      case 'blockquote':
-        document.execCommand('formatBlock', false, '<blockquote>');
-        break;
-      case 'bullet':
-        document.execCommand('insertUnorderedList');
-        break;
-      case 'number':
-        document.execCommand('insertOrderedList');
-        break;
-      default:
-        return;
-    }
-
+    runFormatCommand(formatType, window.getSelection());
     syncContent();
   }
 
@@ -190,7 +143,6 @@
     setTimeout(syncContent, 0);
   }
 
-  /** Flush pending save on blur — ensures draft is persisted before focus leaves editor. */
   function handleEditorBlur(): void {
     syncContent();
     flushSave();
@@ -282,7 +234,7 @@
           const writable = await handle.createWritable();
           await writable.write(targetPayload.data);
           await writable.close();
-        } catch (writeErr) {
+        } catch {
           downloadFile(name, targetPayload.data, targetPayload.mime);
         }
       } catch (pickerErr: any) {
@@ -306,41 +258,41 @@
           oninput={handleTitleInput}
           onblur={handleEditorBlur}
           placeholder="Note title"
-          class="text-8xl font-bold border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent editor-input"
+          class="text-3xl md:text-4xl font-bold tracking-tight h-auto py-1 border-none shadow-none focus-visible:ring-0 px-0 w-full !bg-transparent editor-input"
         />
       </div>
       <div class="flex items-center gap-2 pl-4">
         <Button variant="outline" size="sm" onclick={() => handleSave()} class="flex items-center gap-2">
           <Save class="size-4" />
-          Save
+          <FancyText config={{ mode: 'letter-swap', text: 'Save' }} />
         </Button>
       </div>
     </div>
-    <div class="flex items-center gap-1 pb-3 border-b border-border/40 mb-4">
-      <Button variant="ghost" size="icon-sm" onclick={() => applyFormat('h1')}>
-        <Heading1 class="size-4" />
-      </Button>
-      <Button variant="ghost" size="icon-sm" onclick={() => applyFormat('h2')}>
-        <Heading2 class="size-4" />
-      </Button>
-      <Button variant="ghost" size="icon-sm" onclick={() => applyFormat('h3')}>
-        <Heading3 class="size-4" />
-      </Button>
-      <Separator orientation="vertical" class="mx-1 h-5" />
-      <Button variant="ghost" size="icon-sm" onclick={() => applyFormat('bold')}>
-        <Bold class="size-4" />
-      </Button>
-      <Button variant="ghost" size="icon-sm" onclick={() => applyFormat('italic')}>
-        <Italic class="size-4" />
-      </Button>
-      <Button variant="ghost" size="icon-sm" onclick={() => applyFormat('strikethrough')}>
-        <Strikethrough class="size-4" />
-      </Button>
+    <div role="toolbar" aria-label="Text formatting" class="flex items-center gap-1 pb-3 border-b border-border/40 mb-4">
+      {#each INLINE_TOOLBAR_GROUPS as group, groupIdx (groupIdx)}
+        {#if groupIdx > 0}
+          <Separator orientation="vertical" class="mx-1 h-5" />
+        {/if}
+        {#each group as action (action.id)}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={action.label}
+            title={action.shortcut ? `${action.label} (${action.shortcut})` : action.label}
+            onclick={() => applyFormat(action.id)}
+          >
+            <action.icon class="size-4" />
+          </Button>
+        {/each}
+      {/each}
       <Separator orientation="vertical" class="mx-1 h-5" />
       <div class="relative">
         <Button
           variant="ghost"
           size="icon-sm"
+          aria-label="More formatting options"
+          aria-expanded={showMoreMenu}
+          title="More formatting options"
           onclick={(e) => { e.stopPropagation(); showMoreMenu = !showMoreMenu; }}
         >
           <ChevronDown class="size-4" />
@@ -353,49 +305,32 @@
             onclick={(e) => e.stopPropagation()}
             onkeydown={(e) => e.key === 'Escape' && (showMoreMenu = false)}
           >
-            <button
-              class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-              onclick={() => { applyFormat('codeblock'); showMoreMenu = false; }}
-            >
-              <Code class="size-4" />
-              <span>Code Block</span>
-            </button>
-            <button
-              class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-              onclick={() => { applyFormat('blockquote'); showMoreMenu = false; }}
-            >
-              <Quote class="size-4" />
-              <span>Blockquote</span>
-            </button>
-            <button
-              class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-              onclick={() => { applyFormat('bullet'); showMoreMenu = false; }}
-            >
-              <List class="size-4" />
-              <span>Bullet List</span>
-            </button>
-            <button
-              class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-              onclick={() => { applyFormat('number'); showMoreMenu = false; }}
-            >
-              <ListOrdered class="size-4" />
-              <span>Numbered List</span>
-            </button>
+            {#each OVERFLOW_TOOLBAR_ACTIONS as action (action.id)}
+              <button
+                role="menuitem"
+                class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                onclick={() => { applyFormat(action.id); showMoreMenu = false; }}
+              >
+                <action.icon class="size-4" />
+                <span>{action.menuLabel}</span>
+              </button>
+            {/each}
           </div>
         {/if}
       </div>
       <span class="ml-auto"></span>
-      <Button variant="ghost" size="icon-sm" onclick={zoomOut}>
+      <Button variant="ghost" size="icon-sm" aria-label="Zoom out" title="Zoom out (Ctrl+-)" onclick={zoomOut}>
         <ZoomOut class="size-4" />
       </Button>
       <button
         onclick={resetZoom}
-        class="w-10 text-center text-xs text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer py-0 px-0"
-        title="Reset zoom"
+        class="w-11 text-center text-xs font-mono tabular-nums text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer py-0 px-0 rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Reset zoom"
+        title="Reset zoom (Ctrl+0)"
       >
-        {zoomLevel}%
+        <AnimatedNumber value={zoomLevel} suffix="%" />
       </button>
-      <Button variant="ghost" size="icon-sm" onclick={zoomIn}>
+      <Button variant="ghost" size="icon-sm" aria-label="Zoom in" title="Zoom in (Ctrl+=)" onclick={zoomIn}>
         <ZoomIn class="size-4" />
       </Button>
     </div>
@@ -428,8 +363,8 @@
           [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-1
           [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-1
           [&_li]:my-0.5
-          [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:rounded-md [&_pre]:my-2 [&_pre]:overflow-x-auto
-          [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm
+          [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:rounded-md [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:font-mono
+          [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono
           [&_pre_code]:bg-transparent [&_pre_code]:p-0
           empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground empty:before:cursor-text"
         data-placeholder="Start writing..."
@@ -440,12 +375,25 @@
   <div class="flex h-full w-full flex-col items-center justify-center gap-4 p-6">
     <Plus class="size-12 text-muted-foreground/50" />
     <div class="text-center">
-      <h3 class="text-lg font-semibold">No note selected</h3>
-      <p class="text-sm text-muted-foreground">Create a new note or select one from the sidebar</p>
+      <h3 class="text-lg font-semibold">
+        <FancyText config={{ mode: 'breathing', text: 'No note selected' }} />
+      </h3>
+      <p class="text-sm text-muted-foreground mt-1">
+        <FancyText
+          config={{
+            mode: 'rotate',
+            words: [
+              'Create a new note or select one from the sidebar',
+              'Press Ctrl+N to start a fresh note',
+              'Press Ctrl+K to open the command palette'
+            ]
+          }}
+        />
+      </p>
     </div>
     <Button variant="outline" onclick={handleCreate}>
       <Plus class="size-4" />
-      Create New Note
+      <FancyText config={{ mode: 'letter-swap', text: 'Create New Note' }} />
     </Button>
   </div>
 {/if}
@@ -454,73 +402,25 @@
 
 {#if showMenu}
   <div
+    role="menu"
+    tabindex="-1"
     class="fixed z-50 min-w-[180px] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
     style="left: {menuX}px; top: {menuY}px;"
   >
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('bold')}
-    >
-      <Bold class="size-4" />
-      <span>Bold</span>
-    </button>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('italic')}
-    >
-      <Italic class="size-4" />
-      <span>Italic</span>
-    </button>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('codeblock')}
-    >
-      <Code class="size-4" />
-      <span>Code Block</span>
-    </button>
-    <div class="my-1 h-px bg-border"></div>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('h1')}
-    >
-      <Heading1 class="size-4" />
-      <span>Header 1</span>
-    </button>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('h2')}
-    >
-      <Heading2 class="size-4" />
-      <span>Header 2</span>
-    </button>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('h3')}
-    >
-      <Heading3 class="size-4" />
-      <span>Header 3</span>
-    </button>
-    <div class="my-1 h-px bg-border"></div>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('blockquote')}
-    >
-      <Quote class="size-4" />
-      <span>Blockquote</span>
-    </button>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('bullet')}
-    >
-      <List class="size-4" />
-      <span>Bullet List</span>
-    </button>
-    <button
-      class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
-      onclick={() => applyFormat('number')}
-    >
-      <ListOrdered class="size-4" />
-      <span>Numbered List</span>
-    </button>
+    {#each CONTEXT_MENU_GROUPS as group, groupIdx (groupIdx)}
+      {#if groupIdx > 0}
+        <div class="my-1 h-px bg-border"></div>
+      {/if}
+      {#each group as action (action.id)}
+        <button
+          role="menuitem"
+          class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
+          onclick={() => applyFormat(action.id)}
+        >
+          <action.icon class="size-4" />
+          <span>{action.menuLabel}</span>
+        </button>
+      {/each}
+    {/each}
   </div>
 {/if}
