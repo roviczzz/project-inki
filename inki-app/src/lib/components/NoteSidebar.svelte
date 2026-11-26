@@ -15,7 +15,7 @@
   import { fade } from 'svelte/transition';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash2 from '@lucide/svelte/icons/trash-2';
-  import FolderOpen from '@lucide/svelte/icons/folder-open';
+  import Upload from '@lucide/svelte/icons/upload';
   import GripVertical from '@lucide/svelte/icons/grip-vertical';
   import Copy from '@lucide/svelte/icons/copy';
   import Pencil from '@lucide/svelte/icons/pencil';
@@ -294,13 +294,17 @@
 </script>
 
 <div class="flex h-full w-full flex-col select-none" oncontextmenu={openEmptyCtxMenu} role="presentation">
+  <div class="px-3 pt-3 pb-1 flex items-center gap-2">
+    <img src="/favicon.png" alt="Inki logo" class="size-5 shrink-0 dark:invert" />
+    <span class="text-sm font-semibold tracking-tight">Inki</span>
+  </div>
   <div class="p-3 flex gap-2">
     <Button variant="outline" class="flex-1" onclick={handleNewNote}>
       <Plus class="size-4 mr-1" />
       <FancyText config={{ mode: 'letter-swap', text: 'New Note' }} />
     </Button>
     <Button variant="outline" class="px-3" onclick={handleOpenFile} aria-label="Open File" title="Open File">
-      <FolderOpen class="size-4" />
+      <Upload class="size-4" />
     </Button>
     <input
       type="file"
@@ -484,7 +488,7 @@
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={() => { closeCtxMenu(); handleOpenFile(); }}
       >
-        <FolderOpen class="size-4" />
+        <Upload class="size-4" />
         <span>Import File</span>
       </button>
     {/if}
