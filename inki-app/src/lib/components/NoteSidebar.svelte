@@ -6,7 +6,7 @@
     Dialog, DialogContent, DialogHeader, DialogTitle,
     DialogDescription, DialogFooter
   } from '$lib/components/ui/dialog/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
+  import { FancyText } from '$lib/components/ui/fancy-text/index.js';
   import {
     addNote, deleteNote, getNotes, selectNote, getSelectedNote,
     reorderNote, duplicateNote, renameNote, moveNote
@@ -29,21 +29,19 @@
   let fileInput: HTMLInputElement;
 
   let notesList = $derived(getNotes());
+  let selectedNote = $derived(getSelectedNote());
   let deletingNoteId = $state<string | null>(null);
 
-  // Context menu state
   let ctxMenuX = $state(0);
   let ctxMenuY = $state(0);
   let ctxMenuVisible = $state(false);
   let ctxMenuTarget = $state<'card' | 'empty'>('card');
   let ctxNoteId = $state<string | null>(null);
 
-  // Inline rename state
   let renamingNoteId = $state<string | null>(null);
   let renameValue = $state('');
   let renameInput: HTMLInputElement = $state() as unknown as HTMLInputElement;
 
-  // Pointer drag state
   let dragNoteId = $state<string | null>(null);
   let dragOverNoteId = $state<string | null>(null);
   let isDragging = $state(false);
@@ -115,8 +113,6 @@
     target.value = '';
   }
 
-  // --- Context menu handlers ---
-
   function openNoteCtxMenu(e: MouseEvent, noteId: string): void {
     e.preventDefault();
     e.stopPropagation();
@@ -156,8 +152,6 @@
     ctxNoteId = null;
   }
 
-  // --- Context menu actions ---
-
   function handleCtxDelete(): void {
     if (ctxNoteId) deletingNoteId = ctxNoteId;
     closeCtxMenu();
@@ -185,8 +179,6 @@
     closeCtxMenu();
   }
 
-  // --- Inline rename ---
-
   function commitRename(): void {
     if (renamingNoteId) {
       const val = renameValue.trim();
@@ -206,15 +198,11 @@
     else if (e.key === 'Escape') { e.preventDefault(); closeRename(); }
   }
 
-  // --- Custom pointer events drag & drop reordering ---
-
   function cancelDrag(targetEl?: HTMLElement | null, pointerId?: number): void {
     if (targetEl && pointerId !== undefined) {
       try {
         targetEl.releasePointerCapture(pointerId);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
     dragNoteId = null;
     dragOverNoteId = null;
@@ -229,33 +217,28 @@
   }
 
   function handlePointerDown(e: PointerEvent, id: string): void {
-    // Only drag with primary mouse button click or touch
     if (e.button !== 0) return;
-    
-    // Do not initiate drag if clicking delete button or input field
+
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('input')) return;
 
     closeCtxMenu();
     dragNoteId = id;
     isDragging = false;
-    
-    // Capture pointer to receive move/up events even if cursor goes outside the element
+
     target.closest('[role="button"]')?.setPointerCapture(e.pointerId);
   }
 
   function handlePointerMove(e: PointerEvent, id: string): void {
     if (dragNoteId !== id) return;
-    
-    // Require a minimum movement of 3px to start dragging (avoids accidental click-dragging)
+
     if (!isDragging) {
       isDragging = true;
     }
-    
+
     ghostX = e.clientX;
     ghostY = e.clientY;
-    
-    // Find what element is currently under the cursor
+
     const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
     const cardUnderCursor = elementUnderCursor?.closest('.note-card') as HTMLElement;
     if (cardUnderCursor) {
@@ -273,13 +256,10 @@
   function handlePointerUp(e: PointerEvent, id: string): void {
     if (dragNoteId !== id) return;
 
-    // Release pointer capture
     const cardEl = e.currentTarget as HTMLElement;
     try {
       cardEl.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
+    } catch {}
 
     if (isDragging && dragOverNoteId && dragOverNoteId !== dragNoteId) {
       const targetIdx = notesList.findIndex((n) => n.id === dragOverNoteId);
@@ -288,10 +268,8 @@
       }
     }
 
-    // Reset states
     dragNoteId = null;
     dragOverNoteId = null;
-    // Delay resetting isDragging slightly so click event handler knows not to select note
     setTimeout(() => {
       isDragging = false;
     }, 50);
@@ -319,9 +297,9 @@
   <div class="p-3 flex gap-2">
     <Button variant="outline" class="flex-1" onclick={handleNewNote}>
       <Plus class="size-4 mr-1" />
-      New Note
+      <FancyText config={{ mode: 'letter-swap', text: 'New Note' }} />
     </Button>
-    <Button variant="outline" class="px-3" onclick={handleOpenFile} aria-label="Open File">
+    <Button variant="outline" class="px-3" onclick={handleOpenFile} aria-label="Open File" title="Open File">
       <FolderOpen class="size-4" />
     </Button>
     <input
@@ -337,12 +315,15 @@
     <ScrollArea class="flex-1 min-h-0">
       <div class="flex flex-col gap-1 px-3 pb-3">
         {#each notesList as note (note.id)}
+          {@const isSelected = selectedNote?.id === note.id}
           <Card
             class={cn(
-              'relative cursor-pointer transition-all duration-150 w-full note-card touch-none',
+              'relative cursor-pointer transition-all duration-150 w-full note-card touch-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              isSelected && 'bg-accent/80 ring-1 ring-primary/30 shadow-sm',
               dragOverNoteId === note.id && 'ring-2 ring-primary bg-accent/50'
             )}
             data-note-id={note.id}
+            aria-current={isSelected ? 'true' : undefined}
             onpointerdown={(e) => handlePointerDown(e, note.id)}
             onpointermove={(e) => handlePointerMove(e, note.id)}
             onpointerup={(e) => handlePointerUp(e, note.id)}
@@ -367,7 +348,7 @@
                   onclick={(e) => handleDeleteClick(e, note.id)}
                   onkeydown={(e) => e.stopPropagation()}
                   tabindex={-1}
-                  class="text-muted-foreground hover:text-destructive transition-colors"
+                  class="cursor-pointer rounded-sm text-muted-foreground hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring transition-colors"
                   aria-label="Delete note"
                 >
                   <Trash2 class="size-4" />
@@ -390,7 +371,7 @@
               <p class="truncate text-xs text-muted-foreground">
                 {note.content ? note.content.replace(/<[^>]*>/g, '').slice(0, 80) : ''}
               </p>
-              <p class="mt-1 text-xs text-muted-foreground">{timeAgo(note.updatedAt)}</p>
+              <p class="mt-1 text-xs font-mono tabular-nums text-muted-foreground">{timeAgo(note.updatedAt)}</p>
             </CardContent>
           </Card>
         {/each}
@@ -398,11 +379,12 @@
     </ScrollArea>
   {:else}
     <div class="flex flex-1 items-center justify-center px-3 min-h-0">
-      <p class="text-sm text-muted-foreground">No notes yet</p>
+      <p class="text-sm text-muted-foreground">
+        <FancyText config={{ mode: 'breathing', text: 'No notes yet' }} />
+      </p>
     </div>
   {/if}
 
-  <!-- Delete confirmation dialog -->
   <Dialog open={deletingNoteId !== null} onOpenChange={(open) => { if (!open) deletingNoteId = null; }}>
     <DialogContent class="sm:max-w-[425px]">
       <DialogHeader>
@@ -419,17 +401,19 @@
   </Dialog>
 </div>
 
-<!-- Context menu -->
 <svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} onblur={handleWindowBlur} />
 
 {#if ctxMenuVisible}
   <div
     class="fixed z-50 min-w-[180px] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
     style="left: {ctxMenuX}px; top: {ctxMenuY}px;"
-    oncontextmenu={(e) => e.preventDefault()} role="presentation"
+    oncontextmenu={(e) => e.preventDefault()}
+    role="menu"
+    tabindex="-1"
   >
     {#if ctxMenuTarget === 'card'}
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={handleCtxRename}
       >
@@ -437,6 +421,7 @@
         <span>Rename</span>
       </button>
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={handleCtxDuplicate}
       >
@@ -445,6 +430,7 @@
       </button>
       <div class="my-1 h-px bg-border"></div>
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={() => handleCtxMove('up')}
       >
@@ -452,6 +438,7 @@
         <span>Move Up</span>
       </button>
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={() => handleCtxMove('down')}
       >
@@ -459,6 +446,7 @@
         <span>Move Down</span>
       </button>
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={() => handleCtxMove('top')}
       >
@@ -466,6 +454,7 @@
         <span>Move to Top</span>
       </button>
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={() => handleCtxMove('bottom')}
       >
@@ -474,6 +463,7 @@
       </button>
       <div class="my-1 h-px bg-border"></div>
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer text-destructive"
         onclick={handleCtxDelete}
       >
@@ -482,6 +472,7 @@
       </button>
     {:else}
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={() => { closeCtxMenu(); handleNewNote(); }}
       >
@@ -489,6 +480,7 @@
         <span>New Note</span>
       </button>
       <button
+        role="menuitem"
         class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground cursor-pointer"
         onclick={() => { closeCtxMenu(); handleOpenFile(); }}
       >
